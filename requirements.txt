@@ -1,0 +1,17 @@
+# VidEngram Dependencies
+# Core
+openai>=1.0.0            # OpenAI-compatible client for vLLM-Omni
+requests>=2.31.0         # HTTP client for EverMemOS API
+pyyaml>=6.0              # Config loading
+python-dotenv>=1.0.0     # Environment variable management
+
+# Video processing
+# Note: ffmpeg must be installed system-wide (apt install ffmpeg)
+# PyAV is optional — we use ffmpeg subprocess calls for maximum compatibility
+
+# Demo
+gradio>=4.0.0            # Web UI demo
+
+# Optional: for embedding-based dedup in consolidator
+# numpy>=1.24.0
+# scipy>=1.10.0

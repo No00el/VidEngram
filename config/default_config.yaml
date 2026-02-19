@@ -1,0 +1,107 @@
+# VidEngram Configuration
+# Hippocampal-inspired Video Memory System with EverMemOS
+
+# ─── Model Serving ───────────────────────────────────────────────
+model:
+  # Qwen2.5-Omni-7B served via vLLM-Omni
+  name: "Qwen/Qwen2.5-Omni-7B"
+  base_url: "http://localhost:8091/v1"
+  api_key: "EMPTY"
+  # Captioning parameters
+  caption:
+    max_tokens: 1024
+    temperature: 0.1
+    top_p: 0.9
+    repetition_penalty: 1.1
+  # Answer generation parameters
+  answer:
+    max_tokens: 2048
+    temperature: 0.3
+    top_p: 0.95
+
+# ─── Video Processing ────────────────────────────────────────────
+splitter:
+  # Segmentation strategy: "fixed" or "scene_detect"
+  strategy: "scene_detect"
+  # Fixed-window parameters
+  fixed_window_sec: 30.0
+  overlap_sec: 2.0
+  # Scene detection parameters (PySceneDetect)
+  scene_detect:
+    threshold: 27.0        # ContentDetector threshold
+    min_scene_len_sec: 5.0
+    max_scene_len_sec: 60.0
+  # Temporal mapping: maps video time to virtual calendar time
+  # for EverMemOS temporal reasoning
+  time_mapping:
+    # Anchor: video start maps to this datetime
+    anchor_datetime: "2025-01-01T08:00:00+00:00"
+    # Scale: 1 video-second = N virtual-seconds
+    scale_factor: 60
+
+# ─── Memory Consolidation (HippoMM-inspired) ────────────────────
+consolidation:
+  enabled: true
+  # Similarity threshold for merging adjacent captions
+  similarity_threshold: 0.85
+  # Min information density (chars) to keep a segment
+  min_caption_length: 50
+  # Merge strategy: "sequential" or "semantic"
+  merge_strategy: "semantic"
+  # Max segments to merge into one
+  max_merge_window: 3
+
+# ─── EverMemOS Integration ───────────────────────────────────────
+evermemos:
+  base_url: "http://localhost:8001"
+  api_version: "v1"
+  # Memory ingestion settings
+  ingest:
+    sender: "video_observer"
+    scene: "assistant"    # 1-on-1 mode for episode extraction
+    batch_size: 10
+    delay_between_sec: 0.5
+    index_wait_sec: 15
+  # Retrieval settings
+  retrieval:
+    default_method: "rrf"        # rrf, embedding, bm25, agentic
+    memory_types:
+      - "episodic_memory"
+      - "profile"
+      - "semantic_memory"
+    top_k: 10
+
+# ─── Agentic Routing ─────────────────────────────────────────────
+agent:
+  # Query classification thresholds
+  routing:
+    temporal_keywords: ["when", "before", "after", "first", "last",
+                        "beginning", "end", "minute", "second", "time",
+                        "earlier", "later", "during", "between"]
+    factual_keywords: ["what", "who", "where", "how many", "name",
+                       "describe", "show", "list"]
+    reasoning_keywords: ["why", "compare", "contrast", "relate",
+                         "connection", "because", "explain", "analyze"]
+  # Retrieval strategy routing
+  strategy_map:
+    simple_factual: "rrf"
+    temporal: "agentic"
+    multi_hop: "agentic"
+    keyword_heavy: "bm25"
+    semantic: "embedding"
+  # Context grounding: re-verify answers against video clips
+  context_grounding:
+    enabled: true
+    max_clips_to_verify: 3
+
+# ─── Storage ─────────────────────────────────────────────────────
+storage:
+  base_dir: "./data"
+  segments_dir: "./data/segments"
+  captions_dir: "./data/captions"
+  temp_dir: "./data/temp"
+
+# ─── Logging ─────────────────────────────────────────────────────
+logging:
+  level: "INFO"
+  file: "./logs/videngram.log"

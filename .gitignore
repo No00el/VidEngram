@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment / secrets
+.env
+
+# Logs
+logs/
+
+# EverMemOS (cloned separately)
+EverMemOS/
+
+# Video files
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.webm
+
+# Temp / working data
+data/
+/tmp/videngram/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / tools
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
