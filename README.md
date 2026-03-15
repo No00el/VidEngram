@@ -118,16 +118,23 @@ Download to a local directory on your GPU server:
 VidEngram splits compute across two machines:
 
 ```mermaid
-┌─────────────────────────────┐     ┌──────────────────────────────────────┐
-│       Local machine         │     │          Remote GPU server           │
-│                             │     │                                      │
-│  EverMemOS  (port 8001)     │     │  Qwen2.5-Omni-7B     (port 8091)    │
-│  MongoDB / ES / Milvus /    │     │  Qwen3-Embedding-4B  (port 8000)    │
-│    Redis  (Docker)          │     │  Qwen3-Reranker-4B   (port 12000)   │
-│                             │     │                                      │
-│  VidEngram backend          │     │  Videos SCP'd here; ffmpeg/Qwen     │
-│    (port 7860)   ───────────┼────▶│  run here via SSH                   │
-└─────────────────────────────┘     └──────────────────────────────────────┘
+flowchart LR
+    subgraph LOCAL["💻 Local Machine"]
+        L["EverMemOS (port 8001)
+MongoDB / ES / Milvus / Redis (Docker)
+
+VidEngram Backend (port 7860)"]
+    end
+
+    subgraph REMOTE["🖥️ Remote GPU Server"]
+        R["Qwen2.5-Omni-7B  (port 8091)
+Qwen3-Embedding-4B (port 8000)
+Qwen3-Reranker-4B  (port 12000)
+
+Videos SCP'd here; ffmpeg/Qwen run via SSH"]
+    end
+
+    LOCAL -->|SSH / API| REMOTE
 ```
 
 Use SSH port forwarding to connect local services to the remote GPU server:
