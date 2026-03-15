@@ -234,9 +234,10 @@ class Captioner:
         )
 
         # Build multimodal content array
-        # Local (vLLM-Omni): file:// URL — server reads the file directly.
-        # External API (DashScope etc.): base64 data URI — SSH-read if remote.
-        if self.qwen_cfg.is_local:
+        # Remote mode: file:// URL — vLLM reads the clip directly from the remote filesystem.
+        # Local mode: base64 data URI — encode the clip from the local filesystem.
+        # Note: API params (extra_body) are controlled separately by qwen_cfg.is_local.
+        if self.remote.enabled:
             video_content = {"type": "video_url", "video_url": {"url": f"file://{scaled_path}"}}
         else:
             logger.info(f"  Reading video file for base64 encoding: {scaled_path}")
@@ -408,7 +409,7 @@ class Captioner:
         )
         logger.info(f"  [async] Clip ready: {scaled_path}")
 
-        if self.qwen_cfg.is_local:
+        if self.remote.enabled:
             video_content = {"type": "video_url", "video_url": {"url": f"file://{scaled_path}"}}
         else:
             logger.info(f"  [async] Reading video file for base64 encoding: {scaled_path}")
@@ -517,12 +518,14 @@ class Captioner:
         # ── Step 2: Transcribe via Qwen audio_url ─────────────────────────
         transcript = ""
         try:
-            if self.qwen_cfg.is_local:
+            if self.remote.enabled:
                 audio_content = {"type": "audio_url", "audio_url": {"url": f"file://{audio_path}"}}
-                transcribe_extra = {"modalities": ["text"]}
             else:
                 data_uri = self._read_file_as_b64(audio_path, "audio/wav")
                 audio_content = {"type": "audio_url", "audio_url": {"url": data_uri}}
+            if self.qwen_cfg.is_local:
+                transcribe_extra = {"modalities": ["text"]}
+            else:
                 transcribe_extra = {"modalities": ["text"], "enable_thinking": False}
 
             logger.info(f"  Sending audio transcription request for {audio_path}")
@@ -578,14 +581,19 @@ class Captioner:
         agent decides it needs to "look at" a specific moment in the video
         to answer a query.
         """
-        if self.qwen_cfg.is_local:
+        # File access: remote mode → file:// (clip lives on server); local → base64 encode.
+        if self.remote.enabled:
             scaled_path = clip_path
             video_content = {"type": "video_url", "video_url": {"url": f"file://{scaled_path}"}}
-            extra_body = {"modalities": ["text"], "mm_processor_kwargs": {"fps": 1.0}}
         else:
             scaled_path = self._downscale_clip(clip_path, target_height=720)
             data_uri = self._read_file_as_b64(scaled_path, "video/mp4")
             video_content = {"type": "video_url", "video_url": {"url": data_uri}}
+
+        # API params: vLLM-specific vs external API.
+        if self.qwen_cfg.is_local:
+            extra_body = {"modalities": ["text"], "mm_processor_kwargs": {"fps": 1.0}}
+        else:
             extra_body = {"modalities": ["text"], "enable_thinking": False}
 
         max_tokens = self.qwen_cfg.max_tokens if self.qwen_cfg.is_local else self.qwen_cfg.max_tokens_api

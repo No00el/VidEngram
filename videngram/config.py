@@ -24,10 +24,14 @@ class QwenOmniConfig:
 
     @property
     def is_local(self) -> bool:
-        """True when QWEN_BASE_URL points to a local vLLM-Omni server.
+        """True when QWEN_BASE_URL points to a local or port-forwarded vLLM-Omni server.
 
-        Local servers use file:// URLs and vLLM-specific extra_body params.
-        External APIs (DashScope, etc.) require base64-encoded media instead.
+        Controls API request parameters only (vLLM-specific mm_processor_kwargs and
+        max_tokens vs external API enable_thinking and max_tokens_api).
+
+        File transport (file:// vs base64) is controlled separately by
+        RemoteConfig.enabled: remote mode uses file:// paths on the server;
+        local mode (including SSH port-forwarding) uses base64-encoded payloads.
         """
         return self.base_url.startswith(
             ("http://localhost", "http://127.0.0.1", "http://0.0.0.0")
@@ -186,7 +190,7 @@ class VidEngramConfig:
         if not self.agent.planning_llm_base_url:
             issues.append("[WARNING] No planning LLM configured — agent will use Qwen for reasoning")
 
-        if self.remote.enabled and not self.remote.remote_work_dir:
+        if self.remote.host and not self.remote.remote_work_dir:
             issues.append("[ERROR] REMOTE_HOST set but REMOTE_WORK_DIR is empty")
 
         return issues

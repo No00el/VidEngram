@@ -146,15 +146,21 @@ class SpeechTranscriber:
 
     def _get_duration(self, video_path: str) -> Optional[float]:
         """Return video duration in seconds via ffprobe (local or remote)."""
+        remote_path = self._to_remote_path(video_path)
         cmd_parts = [
             "ffprobe", "-v", "error",
             "-show_entries", "format=duration",
-            "-of", "json", self._to_remote_path(video_path),
+            "-of", "json", remote_path,
         ]
         try:
             if self.remote.enabled:
+                # Quote the path so spaces/special chars in filenames are handled correctly
+                ssh_cmd = (
+                    f"ffprobe -v error -show_entries format=duration "
+                    f"-of json '{remote_path}'"
+                )
                 result = subprocess.run(
-                    ["ssh", self.remote.host, " ".join(cmd_parts)],
+                    ["ssh", self.remote.host, ssh_cmd],
                     capture_output=True, text=True, timeout=30,
                 )
             else:
@@ -239,7 +245,7 @@ class SpeechTranscriber:
         remote_video = self._to_remote_path(video_path)
         ffmpeg_cmd = (
             f"ffmpeg -y -ss {start_sec} -t {duration_sec} "
-            f"-i {remote_video} -vn -ac 1 -ar 16000 -f wav {remote_wav} 2>/dev/null"
+            f"-i '{remote_video}' -vn -ac 1 -ar 16000 -f wav '{remote_wav}' 2>/dev/null"
         )
         try:
             result = subprocess.run(

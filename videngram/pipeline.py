@@ -349,11 +349,12 @@ class VidEngramPipeline:
                     "end_sec": m.end_sec,
                 })
 
+        n_captions = sum(1 for c in captions if not c.raw_text.startswith(error_prefixes))
+        n_episodes = sum(1 for m in memories if m.memory_type == "episode_summary")
         try:
             cues_file.write_text(json.dumps(cues, ensure_ascii=False), encoding="utf-8")
             logger.info(f"Saved {len(cues)} cues to {cues_file} "
-                        f"({len(captions)} captions + "
-                        f"{len(cues) - len(captions)} episode summaries)")
+                        f"({n_captions} captions + {n_episodes} episode summaries)")
         except Exception as e:
             logger.warning(f"Failed to save cues file: {e}")
 

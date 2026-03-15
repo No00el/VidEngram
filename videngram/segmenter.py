@@ -140,7 +140,7 @@ class VideoSegmenter:
         if self.remote.enabled:
             cmd = (
                 f"ffprobe -v error -show_entries format=duration "
-                f"-of json {video_path}"
+                f"-of json '{video_path}'"
             )
             data = self._ssh_json(cmd)
             return float(data.get("format", {}).get("duration", 0))
@@ -160,11 +160,11 @@ class VideoSegmenter:
             cmd = (
                 f"ffmpeg -y "
                 f"-ss {start} "
-                f"-i {video_path} "
+                f"-i '{video_path}' "
                 f"-t {duration} "
                 f"-c:v libx264 -preset fast "
                 f"-c:a aac "
-                f"{clip_path} 2>/dev/null"
+                f"'{clip_path}' 2>/dev/null"
             )
             result = self._ssh(cmd, timeout=300)
             if result.returncode != 0:
@@ -476,7 +476,7 @@ class VideoSegmenter:
         if self.remote.enabled:
             # Redirect stderr to stdout to capture silencedetect output
             cmd = (
-                f"ffmpeg -i {video_path} "
+                f"ffmpeg -i '{video_path}' "
                 f"-af silencedetect=noise={noise}dB:d=0.5 "
                 f"-f null - 2>&1"
             )

@@ -103,9 +103,10 @@ MEMORY_WINDOW_SEC = float(os.environ.get("MEMORY_WINDOW_SEC", "15"))  # +/- seco
 MEMORY_TOP_K = int(os.environ.get("MEMORY_TOP_K", "6"))
 MAX_MEMORY_CHARS = int(os.environ.get("MAX_MEMORY_CHARS", "1200"))
 
-# Must match pipeline.py / memory_writer.py
-_BASE_DATETIME = os.environ.get("BASE_DATETIME", "2025-01-01T00:00:00+00:00")
-_TIME_SCALE_FACTOR = int(os.environ.get("TIME_SCALE_FACTOR", "60"))
+# Must match memory_writer.py: base_dt = datetime(2026, 1, 1) + timedelta(seconds=start_sec)
+# Scale factor is 1 (1 video second = 1 datetime second, no scaling applied).
+_BASE_DATETIME = os.environ.get("BASE_DATETIME", "2026-01-01T00:00:00+00:00")
+_TIME_SCALE_FACTOR = int(os.environ.get("TIME_SCALE_FACTOR", "1"))
 
 # Remote execution settings — must match videngram/config.py RemoteConfig
 _REMOTE_HOST = os.environ.get("REMOTE_HOST", "")
@@ -992,6 +993,7 @@ async def store_to_evermemos(ts_sec: float, scene: str, dialogue: str):
         "content": content,
         "group_id": group_id,
         "group_name": f"VidEngram Live Frame Analysis: {Path(_active_video_remote_path).name}",
+        "scene": "assistant",
     }
 
     try:

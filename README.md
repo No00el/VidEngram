@@ -189,9 +189,6 @@ videngram/
 │   └── index.html          # Single-file Web UI — subtitles, scene nav, D3.js graph (no build step)
 ├── demo/
 │   └── cli.py              # CLI: ingest / query / chat
-├── tests/
-│   ├── test_videngram.py           # Unit tests (pytest, no live services needed)
-│   └── test_runtime_validation.py  # End-to-end execution path validation (mocked externals)
 ├── config/
 │   └── default_config.yaml # Default YAML configuration
 ├── serve_all.sh            # vLLM model server launcher (Omni + Embedding + Reranker)
