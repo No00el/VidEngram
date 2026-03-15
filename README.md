@@ -29,7 +29,7 @@ https://youtu.be/1Y4f9qc9w7g
 
 ## Architecture
 
-'''mermaid
+```mermaid
 flowchart TD
     V([🎬 Video Input])
 
@@ -76,7 +76,7 @@ flowchart TD
     🎞️ look_at_video — clip extract + re-analyze
     🗣️ search_speech — Whisper transcript BM25
     📅 get_timeline — chronological event listing"]
-'''
+```
 
 ## Key Novelties
 
