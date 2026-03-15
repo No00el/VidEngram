@@ -218,7 +218,7 @@ If you use VidEngram, please cite:
 
 ```bibtex
 @misc{videngram2026,
-  author={Zinuo Cheng and Yueqian Lin and Yiran Chen and Hai Li},
+  author={Zinuo Cheng and Yueqian Lin and Yiran Chen and Hai "Helen" Li},
   title={VidEngram: Structured Video Memory Powered by EverMemOS},
   year={2026},
   note={Memory Genesis Competition 2026, Track 1: Agent + Memory}
