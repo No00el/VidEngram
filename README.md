@@ -35,49 +35,34 @@ flowchart TD
 
     subgraph INGEST ["⚙️ Ingestion Pipeline"]
         direction LR
-        A["**1. ASR Transcriber**
-        Whisper API
-        speech segments + timestamps"]
-        -->|transcript|
-        B["**2. Temporal Segmenter**
-        ASR + ffmpeg scene/silence
-        min/max duration constraints"]
-        -->|segments|
-        C["**3. Captioner**
-        Qwen2.5-Omni-7B · vLLM
-        SCENE · PEOPLE · ACTIONS
-        DIALOGUE · SOUNDS · TEXT
-        OBJECTS · EMOTION · TEMPORAL"]
+        A["**1. ASR Transcriber**\nWhisper API\nspeech segments + timestamps"]
+        B["**2. Temporal Segmenter**\nASR + ffmpeg scene/silence\nmin/max duration constraints"]
+        C["**3. Captioner**\nQwen2.5-Omni-7B · vLLM\nSCENE · PEOPLE · ACTIONS\nDIALOGUE · SOUNDS · TEXT\nOBJECTS · EMOTION · TEMPORAL"]
+        A -->|transcript| B
+        B -->|segments| C
     end
 
     subgraph MEMORY ["🧠 Memory Layer"]
         direction LR
-        D["**4. Consolidator**
-        Jaccard dedup > 0.85
-        Episode summaries
-        Entity resolution"]
-        -->|consolidated memories|
-        E["**5. EverMemOS Writer**
-        POST /api/v1/memories
-        3 concurrent workers
-        MongoDB · ES · Milvus"]
+        D["**4. Consolidator**\nJaccard dedup > 0.85\nEpisode summaries\nEntity resolution"]
+        E["**5. EverMemOS Writer**\nPOST /api/v1/memories\n3 concurrent workers\nMongoDB · ES · Milvus"]
+        D -->|consolidated memories| E
     end
 
     subgraph QUERY ["🔍 Query Agent"]
-        direction TB
         F["**6. ReAct Agent**"]
-        F --- F1["search_episodes
-        BM25 + vector"]
-        F --- F2["search_profiles
-        entity / speaker"]
-        F --- F3["search_deep
-        LLM multi-hop"]
-        F --- F4["look_at_video
-        clip re-analyze"]
-        F --- F5["search_speech
-        Whisper BM25"]
-        F --- F6["get_timeline
-        chronological"]
+        F1["search_episodes\nBM25 + vector"]
+        F2["search_profiles\nentity / speaker"]
+        F3["search_deep\nLLM multi-hop"]
+        F4["look_at_video\nclip re-analyze"]
+        F5["search_speech\nWhisper BM25"]
+        F6["get_timeline\nchronological"]
+        F --- F1
+        F --- F2
+        F --- F3
+        F --- F4
+        F --- F5
+        F --- F6
     end
 
     V --> INGEST
