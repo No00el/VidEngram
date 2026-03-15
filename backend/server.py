@@ -24,10 +24,10 @@ except ImportError:
     pass
 
 # ── Configuration ─────────────────────────────────────────────────────────
-VLLM_URL = os.environ.get("VLLM_SERVER") or os.environ.get("QWEN_BASE_URL", "http://localhost:8091/v1")  # API KEY
+VLLM_URL = os.environ.get("VLLM_SERVER") or os.environ.get("QWEN_BASE_URL", "http://localhost:8091/v1")
 EVERMEMOS_URL = (
     os.environ.get("EVERMEMOS_SERVER")
-    or os.environ.get("EVERMEMOS_BASE_URL", "http://localhost:1995")  # API KEY
+    or os.environ.get("EVERMEMOS_BASE_URL", "http://localhost:8001")
 )
 
 

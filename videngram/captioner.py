@@ -613,9 +613,10 @@ class Captioner:
                 # Strip [Image: ...] metadata injected by the vision model
                 result = re.sub(r'\*?\[Image:[^\]]*\]\*?', '', result).strip()
                 return result
+            finish_reason = response.choices[0].finish_reason if response.choices else "N/A"
             logger.error(
                 f"  Clip analysis returned empty content for {clip_path}. "
-                f"finish_reason={response.choices[0].finish_reason if response.choices else 'N/A'!r}"
+                f"finish_reason={finish_reason!r}"
             )
             return "[Analysis error: empty response from model]"
         except Exception as e:

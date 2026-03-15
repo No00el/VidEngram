@@ -18,28 +18,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from .config import VidEngramConfig
-from .utils import ConsolidatedMemory, generate_id
+from .utils import ConsolidatedMemory, generate_id, create_http_session
 
 logger = logging.getLogger("videngram.memory_writer")
-
-
-def _create_session(retries: int = 3, backoff: float = 0.5) -> requests.Session:
-    """Create an HTTP session with retry logic and connection pooling."""
-    session = requests.Session()
-    retry = Retry(
-        total=retries,
-        backoff_factor=backoff,
-        status_forcelist=[502, 503, 504],
-        allowed_methods=["GET", "POST"],
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
 
 
 class MemoryWriter:
@@ -47,13 +30,13 @@ class MemoryWriter:
 
     def __init__(self, config: VidEngramConfig):
         self.cfg = config.evermemos
-        self._session = _create_session()       # used by check_health (single thread)
+        self._session = create_http_session()       # used by check_health (single thread)
         self._thread_local = threading.local()  # per-worker sessions for concurrent writes
 
     def _get_session(self) -> requests.Session:
         """Return a per-thread Session so concurrent workers don't share state."""
         if not hasattr(self._thread_local, "session"):
-            self._thread_local.session = _create_session()
+            self._thread_local.session = create_http_session()
         return self._thread_local.session
 
     def check_health(self) -> bool:

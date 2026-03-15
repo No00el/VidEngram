@@ -72,8 +72,8 @@ class SegmenterConfig:
     fixed_window_sec: float = 10.0   # fallback window for speech/lecture videos
     ssim_threshold: float = 0.65
     silence_threshold_db: float = -40.0
-    min_segment_sec: float = 3.0    # 10 s minimum → captures a complete sentence
-    max_segment_sec: float = 10.0    # 15 s cap → covers a full thought/argument
+    min_segment_sec: float = 3.0    # 3 s minimum → captures a complete sentence
+    max_segment_sec: float = 10.0    # 10 s cap → covers a full thought/argument
     analysis_fps: float = 2.0
 
 
@@ -124,7 +124,7 @@ class AgentConfig:
     def __post_init__(self):
         if not self.planning_llm_base_url:
             self.planning_llm_base_url = os.getenv(
-                "QWEN_BASE_URL", "http://localhost:8091/v1"  # API KEY
+                "QWEN_BASE_URL", "http://localhost:8091/v1"
             )
         if not self.planning_llm_model:
             self.planning_llm_model = os.getenv(

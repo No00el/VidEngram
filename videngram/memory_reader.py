@@ -18,29 +18,12 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from .config import VidEngramConfig
-from .utils import MemoryResult, _fmt_time
+from .utils import MemoryResult, _fmt_time, create_http_session
 from .memory_writer import MemoryWriter
 
 logger = logging.getLogger("videngram.memory_reader")
-
-
-def _create_session(retries: int = 3, backoff: float = 0.5) -> requests.Session:
-    """Create an HTTP session with retry logic and connection pooling."""
-    session = requests.Session()
-    retry = Retry(
-        total=retries,
-        backoff_factor=backoff,
-        status_forcelist=[502, 503, 504],
-        allowed_methods=["GET", "POST"],
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
 
 
 class MemoryReader:
@@ -49,7 +32,7 @@ class MemoryReader:
     def __init__(self, config: VidEngramConfig):
         self.cfg = config.evermemos
         self._work_dir = config.work_dir
-        self._session = _create_session()
+        self._session = create_http_session()
 
     def search_episodes(
         self,
