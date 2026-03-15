@@ -2,6 +2,7 @@
 # Core
 openai>=1.0.0            # OpenAI-compatible client for vLLM-Omni
 requests>=2.31.0         # HTTP client for EverMemOS API
+httpx>=0.24.0            # Async HTTP client (graph_builder, backend server)
 pyyaml>=6.0              # Config loading
 python-dotenv>=1.0.0     # Environment variable management
 
@@ -9,9 +10,16 @@ python-dotenv>=1.0.0     # Environment variable management
 # Note: ffmpeg must be installed system-wide (apt install ffmpeg)
 # PyAV is optional — we use ffmpeg subprocess calls for maximum compatibility
 
+# Data / Visualization
+numpy>=1.24.0            # Numerical arrays (visualizer)
+scikit-learn>=1.3.0      # TF-IDF, TruncatedSVD, t-SNE (visualizer)
+matplotlib>=3.7.0        # t-SNE scatter plot output (visualizer)
+
+# Backend server
+fastapi>=0.110.0         # REST API server
+starlette>=0.27.0        # CORS middleware (backend/server.py)
+uvicorn[standard]>=0.27.0  # ASGI server
+python-multipart>=0.0.9  # File upload support for FastAPI
+
 # Demo
 gradio>=4.0.0            # Web UI demo
-
-# Optional: for embedding-based dedup in consolidator
-# numpy>=1.24.0
-# scipy>=1.10.0

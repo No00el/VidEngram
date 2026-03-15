@@ -2,7 +2,22 @@
 
 > **Memory Genesis Competition 2026 — Track 1: Agent + Memory**
 
-VidEngram bridges **Qwen2.5-Omni** multimodal understanding with **EverMemOS** structured long-term memory to enable agentic comprehension of long videos. Inspired by HippoMM's hippocampal memory formation principles, VidEngram doesn't just caption and retrieve — it *understands*, *consolidates*, and *reasons* about video content through structured episodic memory.
+VidEngram is built on two core pillars: **Qwen2.5-Omni** for native multimodal video+audio understanding, and **EverMemOS** for structured long-term memory with hierarchical storage, hybrid retrieval, and temporal reasoning. Inspired by HippoMM's hippocampal memory formation principles, VidEngram doesn't just caption and retrieve — it *understands*, *consolidates*, and *reasons* about video content through EverMemOS's three-layer episodic memory architecture (segment → episode → entity profile).
+
+## Demo Video
+
+<!-- YouTube link coming soon -->
+
+## Key Features
+
+| Feature | Description |
+|---|---|
+| **Native multimodal understanding** | Qwen2.5-Omni processes video frames and audio in a single pass — no separate vision/audio pipelines |
+| **Hippocampal memory consolidation** | Three-layer hierarchy: segment → episode summary → entity profile |
+| **ReAct agentic Q&A** | 6 tools, autonomous dispatch, self-reflection on answer quality |
+| **Forced timestamp citations** | All answers include `[Video M:SS - N:SS]` anchors grounded in actual video time |
+| **Streaming ingest architecture** | Speech and segment memories written concurrently as captions arrive |
+| **Web UI + knowledge graph** | Real-time subtitle overlay, scene navigation, D3.js entity relationship graph |
 
 ## Architecture
 
@@ -11,122 +26,143 @@ Video Input
     │
     ▼
 ┌──────────────────────────┐
-│  1. Temporal Segmenter   │  HippoMM-inspired pattern separation
-│     (scene + silence)    │  ffmpeg scene detection + silencedetect
+│  1. ASR Transcriber      │  Whisper API — extracts speech segments with timestamps
+└──────────┬───────────────┘
+           │ transcript
+           ▼
+┌──────────────────────────┐
+│  2. Temporal Segmenter   │  HippoMM-inspired pattern separation
+│     (ASR-guided +        │  ASR boundaries + ffmpeg scene/silence detection
+│      scene + silence)    │  Parallel clip extraction with min/max duration constraints
 └──────────┬───────────────┘
            │ segments
            ▼
 ┌──────────────────────────┐
-│  2. Captioner            │  Qwen2.5-Omni-7B via vLLM-Omni
-│     (video+audio→text)   │  Structured: scene/people/dialogue/sounds/emotion
+│  3. Captioner            │  Qwen2.5-Omni-7B via vLLM
+│     (video+audio→text)   │  9-field structured output:
+│                          │  SCENE / PEOPLE / ACTIONS / DIALOGUE /
+│                          │  SOUNDS / TEXT / OBJECTS / EMOTION / TEMPORAL
 └──────────┬───────────────┘
-           │ captions
+           │ captions (streamed)
            ▼
 ┌──────────────────────────┐
-│  3. Consolidator         │  HippoMM-inspired memory consolidation
-│     - Dedup filtering    │  Pattern separation → encoding → replay
-│     - Episode summaries  │  Creates hierarchical memory structure
-│     - Entity profiles    │
+│  4. Consolidator         │  HippoMM-inspired memory consolidation
+│     - Dedup filtering    │  Jaccard similarity > 0.85 → merge
+│     - Episode summaries  │  Related segments grouped into narrative episodes
+│     - Entity profiles    │  Cross-episode entity resolution and merging
 └──────────┬───────────────┘
            │ consolidated memories
            ▼
 ┌──────────────────────────┐
-│  4. EverMemOS Writer     │  POST /api/v1/memories
-│     (structured storage) │  MemCell → Episode → Profile extraction
+│  5. EverMemOS Writer     │  POST /api/v1/memories
+│     (structured storage) │  Concurrent writes (3 workers), streaming segment memories
+│                          │  MongoDB + Elasticsearch + Milvus indexing
 └──────────┬───────────────┘
            │
            ▼
 ┌──────────────────────────┐
-│  5. Agentic Query Agent  │  ReAct reasoning loop
-│     ┌─ search_episodes   │  5 tools for query answering
-│     ├─ search_profiles   │  Adaptive strategy routing
-│     ├─ search_deep       │  Self-reflection on answer quality
-│     ├─ look_at_video     │  Context grounding via clip re-analysis
-│     └─ get_timeline      │  Temporal event listing
+│  6. Agentic Query Agent  │  ReAct reasoning loop
+│     ┌─ search_episodes   │  Fast hybrid retrieval (BM25 + vector)
+│     ├─ search_profiles   │  Entity / speaker profile lookup
+│     ├─ search_deep       │  LLM-guided multi-hop retrieval
+│     ├─ look_at_video     │  Extract clip + re-analyze with Qwen2.5-Omni
+│     ├─ search_speech     │  BM25 search over Whisper speech transcripts
+│     └─ get_timeline      │  Chronological event listing for a time range
 └──────────────────────────┘
 ```
 
-## Key Novelties (Competition Differentiators)
+## Key Novelties
 
 1. **Hippocampal Memory Pipeline** — Not naive caption→RAG. Three-stage consolidation (dedup, episodes, profiles) creates a hierarchical memory structure that enables multi-hop reasoning.
 
-2. **Agentic ReAct Orchestrator** — The query agent *plans* which tools to use, *executes* searches and video analysis, *observes* results, and *iterates*. It self-decides between fast retrieval vs deep retrieval vs direct video grounding.
+2. **EverMemOS as the Memory Backbone** — All consolidated memories are stored in EverMemOS's native three-layer hierarchy (MemCell → Episode → Entity Profile). Retrieval combines BM25 keyword search, dense vector search, and LLM-guided reranking in a single hybrid (RRF) call — capabilities provided entirely by EverMemOS with no custom retrieval code needed.
 
-3. **Context Grounding** — When memory alone isn't enough, the agent extracts the specific video clip and re-analyzes it with Qwen2.5-Omni, verifying/enriching its answer with fresh multimodal evidence.
+3. **Agentic ReAct Orchestrator** — The query agent *plans* which tools to use, *executes* searches and video analysis, *observes* results, and *iterates*. Six tools cover fast retrieval, profile lookup, multi-hop retrieval, speech search, video grounding, and timeline queries.
 
-4. **Temporal Reasoning via Virtual Timestamps** — Video seconds are mapped to virtual calendar datetimes so EverMemOS's temporal reasoning engine can understand "before/after/during" relationships in video events.
+4. **Context Grounding** — When memory alone isn't enough, the agent extracts the specific video clip and re-analyzes it with Qwen2.5-Omni, verifying and enriching its answer with fresh multimodal evidence.
 
-5. **Unified Audio-Visual Understanding** — Qwen2.5-Omni processes video and audio in a single pass, eliminating the error-prone fusion of separate vision/audio pipelines.
+5. **Temporal Reasoning via Virtual Timestamps** — Video seconds are mapped to virtual calendar datetimes so EverMemOS's temporal reasoning engine can understand "before/after/during" relationships in video events.
+
+6. **Remote SSH Execution** — ffmpeg segmentation, Whisper transcription, and Qwen captioning can all run on a remote GPU server. Only metadata and captions are transferred back, keeping bandwidth usage low.
 
 ## Quick Start
 
+> For the complete step-by-step setup guide, see [E2E_SETUP.md](E2E_SETUP.md).
+
 ### Prerequisites
-- Python 3.10+
-- Docker 20.10+
-- GPU with ≥24GB VRAM (for Qwen2.5-Omni-7B)
-- ffmpeg installed system-wide
 
-### 1. Clone and Install
+- Python 3.10+, `uv`, Docker & Docker Compose, ffmpeg
+- GPU with ≥30GB VRAM (Qwen2.5-Omni + Embedding + Reranker), or 2 GPUs to split
 
-```bash
-git clone https://github.com/your-repo/videngram.git
-cd videngram
+### Model checkpoints
 
-# Install dependencies
-pip install -r requirements.txt
+Download to a local directory on your GPU server:
 
-# Configure
-cp .env.template .env
-# Edit .env with your API keys
+| Model | Size | Purpose |
+|---|---|---|
+| [Qwen2.5-Omni-7B](https://huggingface.co/Qwen/Qwen2.5-Omni-7B) | ~14GB bf16 | Video captioning + video grounding |
+| [Qwen3-Embedding-4B](https://huggingface.co/Qwen/Qwen3-Embedding-4B) | ~8GB bf16 | EverMemOS vector embeddings |
+| [Qwen3-Reranker-4B](https://huggingface.co/Qwen/Qwen3-Reranker-4B) | ~8GB bf16 | EverMemOS search reranking |
+
+### Deployment topology
+
+VidEngram splits compute across two machines:
+
+```
+┌─────────────────────────────┐     ┌──────────────────────────────────────┐
+│       Local machine         │     │          Remote GPU server           │
+│                             │     │                                      │
+│  EverMemOS  (port 8001)     │     │  Qwen2.5-Omni-7B     (port 8091)    │
+│  MongoDB / ES / Milvus /    │     │  Qwen3-Embedding-4B  (port 8000)    │
+│    Redis  (Docker)          │     │  Qwen3-Reranker-4B   (port 12000)   │
+│                             │     │                                      │
+│  VidEngram backend          │     │  Videos SCP'd here; ffmpeg/Qwen     │
+│    (port 7860)   ───────────┼────▶│  run here via SSH                   │
+└─────────────────────────────┘     └──────────────────────────────────────┘
 ```
 
-### 2. Start Infrastructure
+Use SSH port forwarding to connect local services to the remote GPU server:
 
 ```bash
-# Start Docker services (MongoDB, Elasticsearch, Milvus, Redis)
-docker compose up -d
-
-# Clone and start EverMemOS (in a separate terminal)
-git clone https://github.com/EverMind-AI/EverMemOS.git
-cd EverMemOS
-uv sync
-cp env.template .env  # Edit with your LLM API key
-uv run python src/run.py --port 8001
-
-# Start Qwen2.5-Omni-7B via vLLM-Omni (in another terminal)
-vllm serve Qwen/Qwen2.5-Omni-7B --omni --port 8091 --dtype bfloat16
+ssh -L 8091:localhost:8091 -L 8000:localhost:8000 -L 12000:localhost:12000 user@remote-gpu-server
 ```
 
-### 3. Ingest and Query
+### Startup order
+
+| # | Service | Command | Port |
+|---|---------|---------|------|
+| 1 | Docker infra | `cd EverMemOS && docker compose up -d` | 27017, 19200, 19530, 6379 |
+| 2 | vLLM servers **(remote)** | `bash serve_all.sh` | 8091, 8000, 12000 |
+| 3 | EverMemOS | `cd EverMemOS && uv run python src/run.py --port 8001` | 8001 |
+| 4 | VidEngram backend | `uvicorn backend.server:app --host 0.0.0.0 --port 7860` | 7860 |
+
+Then open **http://localhost:7860** in your browser.
+
+For CLI usage:
 
 ```bash
-# Ingest a video
 python -m demo.cli ingest path/to/video.mp4
-
-# Interactive chat
-python -m demo.cli chat path/to/video.mp4
-
-# Single query
-python -m demo.cli query path/to/video.mp4 "What was the main argument?"
-
-# Web UI
-python -m demo.gradio_app
+python -m demo.cli query  path/to/video.mp4 "What was the main argument?"
+python -m demo.cli chat   path/to/video.mp4
 ```
+
+For full setup details including `.env` configuration, EverMemOS setup, GPU layout tips, and troubleshooting, see **[E2E_SETUP.md](E2E_SETUP.md)**.
 
 ## Python API
 
 ```python
-from videngram.pipeline import VidEngramPipeline
+from videngram import VidEngramPipeline
 
 pipeline = VidEngramPipeline()
 
 # Ingest
 stats = pipeline.ingest("lecture.mp4")
-print(f"Created {stats['memories_total']} memories")
+print(f"Processed {stats['segments']} segments, wrote {stats['memories_total']} memories")
+# e.g. memories_segments / memories_episodes / memories_profiles / memories_speech
 
 # Query
 response = pipeline.query("What examples did the speaker use?", "lecture.mp4")
-print(response.answer)
+print(response.answer)                        # includes [Video M:SS - N:SS] citations
 print(f"Agent used {len(response.actions)} tool calls")
 print(f"Grounded in {len(response.grounded_clips)} video clips")
 ```
@@ -137,49 +173,60 @@ print(f"Grounded in {len(response.grounded_clips)} video clips")
 videngram/
 ├── videngram/
 │   ├── __init__.py
-│   ├── config.py           # Dataclass configs (Qwen, EverMemOS, Segmenter, Agent)
-│   ├── utils.py            # Data classes, timestamp mapping, ffmpeg helpers
+│   ├── config.py           # Dataclass configs (Qwen, EverMemOS, Segmenter, Consolidator, Agent, ...)
+│   ├── utils.py            # Data classes (VideoSegment, Caption, ConsolidatedMemory,
+│   │                       #   MemoryResult, AgentAction, AgentResponse) + timestamp helpers
+│   ├── pipeline.py         # End-to-end orchestration (ingest + query)
 │   ├── segmenter.py        # HippoMM-inspired temporal pattern separation
-│   ├── captioner.py        # Qwen2.5-Omni structured captioning
-│   ├── consolidator.py     # Memory consolidation (dedup + episodes + profiles)
-│   ├── memory_writer.py    # EverMemOS ingestion adapter
-│   ├── memory_reader.py    # EverMemOS retrieval (rrf/bm25/embedding/agentic)
-│   ├── agent.py            # ReAct agent with 5 tools
-│   └── pipeline.py         # End-to-end orchestration
+│   ├── captioner.py        # Qwen2.5-Omni structured captioning (9 fields, local + external API)
+│   ├── transcriber.py      # Speech transcription (Whisper-compatible ASR)
+│   ├── consolidator.py     # Memory consolidation (dedup → episodes → entity profiles)
+│   ├── memory_writer.py    # EverMemOS ingestion adapter (streaming, concurrent writes)
+│   ├── memory_reader.py    # EverMemOS retrieval — fast (RRF/BM25/embedding) + agentic
+│   ├── agent.py            # ReAct agent with 6 tools
+│   └── visualizer.py       # t-SNE memory embedding visualization
+├── backend/
+│   ├── server.py           # FastAPI backend + serves frontend/index.html (port 7860)
+│   └── graph_builder.py    # Async entity relationship graph extraction (background task)
+├── frontend/
+│   └── index.html          # Single-file Web UI — subtitles, scene nav, D3.js graph (no build step)
 ├── demo/
-│   ├── cli.py              # CLI demo (ingest/query/chat)
-│   └── gradio_app.py       # Gradio web UI
-├── scripts/
-│   └── start_services.sh   # Infrastructure launcher
+│   └── cli.py              # CLI: ingest / query / chat
+├── tests/
+│   ├── test_videngram.py           # Unit tests (pytest, no live services needed)
+│   └── test_runtime_validation.py  # End-to-end execution path validation (mocked externals)
 ├── config/
-│   └── default_config.yaml # YAML config (HippoMM-style)
-├── docker-compose.yml      # MongoDB, Elasticsearch, Milvus, Redis
-├── requirements.txt
-├── .env.template
-└── README.md
+│   └── default_config.yaml # Default YAML configuration
+├── serve_all.sh            # vLLM model server launcher (Omni + Embedding + Reranker)
+├── docker-compose.yml      # MongoDB, Elasticsearch, Milvus, Redis (local dev)
+├── requirements.txt        # Python dependencies
+├── pyproject.toml          # Package metadata (Python 3.10+)
+├── .env.template           # Environment variable template
+└── E2E_SETUP.md            # Full deployment guide
 ```
 
 ## How It Works: HippoMM → VidEngram
 
 | HippoMM Concept | VidEngram Implementation |
 |---|---|
-| Temporal Pattern Separation | `segmenter.py`: scene-change + silence detection via ffmpeg |
-| Perceptual Encoding | `captioner.py`: Qwen2.5-Omni structured captions (unified AV) |
-| Memory Consolidation | `consolidator.py`: dedup → episodes → profiles |
-| Short-Term → Long-Term | `memory_writer.py`: EverMemOS MemCell → Episode → Profile |
-| Fast Retrieval (Φ_fast) | `memory_reader.py`: RRF/BM25/embedding search |
-| Detailed Recall (Ψ_detailed) | `memory_reader.py`: Agentic multi-hop retrieval |
-| ImageBind cross-modal features | Replaced by Qwen2.5-Omni (processes video+audio natively) |
-| ThetaEvent semantic summaries | `consolidator.py`: LLM-generated episode summaries |
-| Query answering | `agent.py`: ReAct loop with 5 tools + context grounding |
+| Perceptual Encoding | `captioner.py`: Qwen2.5-Omni 9-field structured captions (unified AV) |
+| Pattern Separation | `segmenter.py`: ASR-guided + scene/silence detection; dedup filtering in `consolidator.py` |
+| Memory Consolidation | `consolidator.py`: episode summaries + entity profile construction |
+| Pattern Completion | `agent.py`: ReAct agent tool dispatch |
+| Fast Recall (Φ_fast) | `memory_reader.py`: RRF / BM25 / embedding hybrid search |
+| Detailed Recall (Ψ_detailed) | `memory_reader.py`: LLM-guided multi-hop retrieval + video grounding via `look_at_video` |
+| Episodic Memory | `memory_writer.py`: EverMemOS MemCell → Episode → Profile hierarchy |
 
 ## Dependencies
 
 | Component | Version | Purpose |
 |---|---|---|
-| Qwen2.5-Omni-7B | — | Multimodal understanding (video+audio→text) |
-| vLLM-Omni | ≥0.14.0 | Model serving with OpenAI-compatible API |
+| Qwen2.5-Omni-7B | — | Multimodal video+audio→text understanding and video grounding |
+| Qwen3-Embedding-4B | — | EverMemOS vector embeddings |
+| Qwen3-Reranker-4B | — | EverMemOS search reranking |
+| vLLM | ≥0.16.0 | Model serving with OpenAI-compatible API |
 | EverMemOS | ≥1.2.0 | Structured long-term memory system |
+| FastAPI / uvicorn | — | Backend web server |
 | MongoDB | 7.0 | EverMemOS document storage |
 | Elasticsearch | 8.15 | BM25 keyword search |
 | Milvus | 2.4 | Vector similarity search |
@@ -200,7 +247,7 @@ If you use VidEngram, please cite:
 
 Also cite the foundational works:
 - **HippoMM**: Lin et al., "HippoMM: Hippocampal-inspired Multimodal Memory for Long Audiovisual Event Understanding", arXiv:2504.10739
-- **EverMemOS**: EverMind AI, https://github.com/EverMind-AI/EverMemOS
+- **EverMemOS**: EverMind AI, https://github.com/SuanAI/EverMemOS
 - **Qwen2.5-Omni**: Qwen Team, Alibaba Cloud
 
 ## License

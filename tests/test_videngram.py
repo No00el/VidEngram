@@ -133,18 +133,8 @@ class TestUtils:
         id2 = generate_id("seg", "b.mp4", 0, 10)
         assert id1 != id2
 
-    def test_memory_result_timestamp_extraction(self):
-        from videngram.utils import MemoryResult
-        # Legacy format (space-separated)
-        r = MemoryResult(
-            content="[Video 1.5 - 3.0 min] Something happened here"
-        )
-        ts = r.timestamp_range
-        assert ts is not None
-        assert ts == (90.0, 180.0)  # 1.5*60, 3.0*60
-
     def test_memory_result_timestamp_actual_format(self):
-        """Test the ACTUAL format produced by consolidator: [Video 1.5min - 3.0min]"""
+        """Test the ACTUAL format produced by consolidator: [Video 1:30 - 3:00]"""
         from videngram.utils import MemoryResult, fmt_minutes
         # This is what the consolidator actually produces
         content = f"[Video {fmt_minutes(90)} - {fmt_minutes(180)}] Something happened"
@@ -154,20 +144,28 @@ class TestUtils:
         assert ts == (90.0, 180.0)
 
     def test_memory_result_timestamp_episode_format(self):
-        """Test episode format: [Episode 0.0min - 5.0min]"""
+        """Test episode format: [Episode 0:00 - 5:00]"""
         from videngram.utils import MemoryResult
-        r = MemoryResult(content="[Episode 0.0min - 5.0min] Episode summary here")
+        r = MemoryResult(content="[Episode 0:00 - 5:00] Episode summary here")
         ts = r.timestamp_range
         assert ts is not None
         assert ts == (0.0, 300.0)
 
     def test_memory_result_timestamp_analysis_format(self):
-        """Test agent analysis format: [Video analysis 1.5min - 3.0min]"""
+        """Test agent analysis format: [Video analysis 1:30 - 3:00]"""
         from videngram.utils import MemoryResult
-        r = MemoryResult(content="[Video analysis 1.5min - 3.0min] Details here")
+        r = MemoryResult(content="[Video analysis 1:30 - 3:00] Details here")
         ts = r.timestamp_range
         assert ts is not None
         assert ts == (90.0, 180.0)
+
+    def test_memory_result_timestamp_hhmmss_format(self):
+        """Test H:MM:SS format for long videos: [Video 1:02:30 - 1:03:00]"""
+        from videngram.utils import MemoryResult
+        r = MemoryResult(content="[Video 1:02:30 - 1:03:00] Long video segment")
+        ts = r.timestamp_range
+        assert ts is not None
+        assert ts == (3750.0, 3780.0)  # 1h2m30s, 1h3m0s
 
     def test_memory_result_no_timestamp(self):
         from videngram.utils import MemoryResult
@@ -176,8 +174,9 @@ class TestUtils:
 
     def test_fmt_minutes(self):
         from videngram.utils import fmt_minutes
-        assert fmt_minutes(90.0) == "1.5min"
-        assert fmt_minutes(0.0) == "0.0min"
+        assert fmt_minutes(90.0) == "1:30"
+        assert fmt_minutes(0.0) == "0:00"
+        assert fmt_minutes(3661.0) == "1:01:01"
 
 
 # ── Segmenter Tests ─────────────────────────────────────────────────────
@@ -320,7 +319,7 @@ class TestMemoryWriter:
 
         mem = ConsolidatedMemory(
             memory_id="mem_test_001",
-            content="[Video 0.0 - 0.5 min] A person walks into frame",
+            content="[Video 0:00 - 0:30] A person walks into frame",
             start_sec=0.0,
             end_sec=30.0,
             memory_type="segment",

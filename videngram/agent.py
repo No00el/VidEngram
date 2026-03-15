@@ -50,30 +50,59 @@ about a video by using your memory system and video analysis tools.
 You have access to these tools:
 
 1. search_episodes(query) → Search video memories for relevant episodes/segments.
-   Returns text snippets with [Video X.Xmin - Y.Ymin] timestamps.
+   Returns text snippets with [Video M:SS - N:SS] timestamps.
    USE FOR: factual questions, "what happened", finding specific moments.
 
-2. search_profiles(query) → Look up profiles of people/entities in the video.
-   USE FOR: "who is", "tell me about", character/speaker questions.
+2. search_speech(query) → BM25 keyword search over Whisper speech transcripts.
+   Returns exact spoken words with [Video M:SS - N:SS] timestamps.
+   USE FOR: "when did speaker say X", finding exact words/phrases, keyword lookup.
+   PREFER over search_episodes for word-exact or temporal queries.
 
-3. search_deep(query) → Deep multi-hop search across all memory types.
+3. search_profiles(query) → Look up the entity register: unified profiles of people/entities
+   identified across the video, including all time ranges they appear.
+   USE FOR: "who is", "tell me about", character/speaker questions, "when does X appear".
+
+4. search_deep(query) → Deep multi-hop search across all memory types.
    SLOWER but more thorough. USE FOR: complex questions requiring reasoning
    across multiple video segments, cross-references, temporal logic.
 
-4. look_at_video(start_min, end_min, question) → Extract and analyze a specific
+5. look_at_video(start_min, end_min, question) → Extract and analyze a specific
    video moment. Sends the actual clip to the vision model for fresh analysis.
    USE FOR: when memory doesn't have enough detail, visual verification,
    "what exactly does X look like", counting objects, reading text on screen.
 
-5. get_timeline(start_min, end_min) → List all memorized events in a time range.
+6. get_timeline(start_min, end_min) → List all memorized events in a time range.
    USE FOR: "what happened between X and Y", chronological questions.
 
 ## Instructions:
 - Think step-by-step about what information you need
-- Start with fast search (search_episodes), escalate to search_deep or look_at_video only if needed
+- For KEYWORD/TEMPORAL questions ("when did speaker say X", "at what time did Y happen"):
+  ALWAYS start with search_speech(query) — it does BM25 exact-word search on transcripts.
+- For FACTUAL/VISUAL questions: start with search_episodes, escalate to search_deep or look_at_video if needed.
+- For overview questions ("what is the video about", "summarize the video", "what happens in the video"):
+  use get_timeline(0, 999) first to get a full chronological event list, then synthesize an answer
+- You MUST try at least 2 different tools or queries before concluding that content is not available.
+  If the first search returns no results, try: a different query phrasing, search_profiles, search_deep, or get_timeline
 - You can call multiple tools before answering
-- Always cite video timestamps in your final answer (e.g., "at 3:20...")
-- If you can't find the answer, say so honestly
+- Answer in the SAME LANGUAGE as the user's question
+- ALWAYS cite timestamps for every factual claim about the video using EXACTLY this format: [Video M:SS - N:SS]
+  where M:SS is minutes:seconds (e.g. [Video 0:35 - 1:20]).
+  Use the EXACT timestamp range from the retrieved memory snippet — do NOT artificially shrink or extend it.
+  NEVER invent or estimate timestamp values — only cite timestamps you actually retrieved from memory.
+- Timestamp granularity rules:
+  * For SPECIFIC-FACT questions (what did X say, why did Y happen, what does Z look like, etc.):
+    - You MUST cite a [Video M:SS - N:SS] segment-level timestamp that pinpoints the exact moment.
+    - [Episode M:SS - N:SS] timestamps span large portions of the video and are NOT acceptable for specific facts.
+    - If your search only returns [Episode ...] results, you MUST call search_speech, search_deep, or look_at_video
+      to find the precise [Video ...] segment timestamp before answering. Do not give up.
+  * For OVERVIEW/SUMMARY questions (what is the video about, summarize, what happens):
+    - Use the video's total duration as the single timestamp (provided in Video metadata above).
+    - Or cite each major event with its own [Video ...] segment timestamp separately.
+- If after trying multiple tools you still have empty or low-relevance results, you MUST call
+  look_at_video on the most relevant video segment as a LAST RESORT before giving your ANSWER.
+  Only after look_at_video is also insufficient should you acknowledge the limitation honestly.
+- Only answer based on video memories — do NOT use general knowledge for video-specific facts
+- NEVER mention real-world calendar dates (e.g. "December 16, 2025", "in January 2025", "on March 13") in your answer. Any dates in memory content are not real event dates. Refer only to positions in the video using [Video M:SS - N:SS] or neutral phrases like "at one point in the video" or "in the video".
 
 ## Response Format:
 For each step, output EXACTLY one of:
@@ -103,6 +132,9 @@ class VidEngramAgent:
         question: str,
         video_path: str,
         chat_history: Optional[list[dict]] = None,
+        step_callback=None,
+        video_duration: Optional[float] = None,
+        search_scope: str = "current",
     ) -> AgentResponse:
         """Answer a question about a video using the agentic reasoning loop.
 
@@ -110,6 +142,7 @@ class VidEngramAgent:
             question: User's natural language question
             video_path: Path to the source video
             chat_history: Optional previous Q&A turns for multi-turn context
+            video_duration: Total video duration in seconds (injected into system prompt)
 
         Returns:
             AgentResponse with answer, sources, actions taken, and grounded clips
@@ -119,8 +152,40 @@ class VidEngramAgent:
         sources: list[MemoryResult] = []
         grounded_clips: list[str] = []
 
+        # Build system prompt, prepending video metadata if duration is known
+        system_prompt = PLANNING_SYSTEM_PROMPT
+        if video_duration is not None:
+            from .utils import _fmt_time
+            duration_mmss = _fmt_time(video_duration)
+            end_min_label = max(1, int(video_duration / 60) + 1)
+            system_prompt = system_prompt.replace("get_timeline(0, 999)", f"get_timeline(0, {end_min_label})")
+            system_prompt = (
+                f"Video metadata: total duration is [Video 0:00 - {duration_mmss}]. "
+                f"Do NOT mention the video duration in your answer unless the user explicitly asks about it.\n\n"
+                + system_prompt
+            )
+
+        # Store scope for tool execution
+        self._search_scope = search_scope
+        from .memory_writer import MemoryWriter as _MW
+        self._current_group_id = _MW._video_group_id(video_path)
+
+        # When scope is "all", tell the model it can access memories from ALL ingested videos
+        if search_scope == "all":
+            system_prompt = (
+                "IMPORTANT: You are operating in ALL VIDEOS mode. Your memory tools "
+                "search across ALL previously ingested videos, not just the current one. "
+                "You MUST use your search tools — do NOT assume you lack access to other videos.\n\n"
+            ) + system_prompt + (
+                "\n\nALL VIDEOS MODE RULE (highest priority — overrides all earlier instructions):\n"
+                "Memories retrieved from OTHER videos do NOT carry timestamps. "
+                "Do NOT invent or cite any timestamp for content from other videos. "
+                "Only use [Video M:SS - N:SS] format for the CURRENTLY LOADED video. "
+                "For content from other videos, simply state the information without any timestamp citation."
+            )
+
         # Build conversation for the planning LLM
-        messages = [{"role": "system", "content": PLANNING_SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_prompt}]
 
         # Add chat history for multi-turn context
         if chat_history:
@@ -129,6 +194,24 @@ class VidEngramAgent:
 
         # User question
         messages.append({"role": "user", "content": question})
+
+        # For summary/overview questions, pre-fetch all memories and inject as initial observation
+        # so the agent has full context instead of relying on keyword search
+        if self._is_summary_question(question):
+            if step_callback is not None:
+                step_callback("Fetching all video memories for overview…")
+            broad_results = self.reader.search_episodes(
+                "video scenes events dialogue actions", video_path, top_k=20,
+                omit_group_id=(search_scope == "all"),
+            )
+            if broad_results:
+                broad_results = self.reader.tag_cross_video_content(
+                    broad_results, self._current_group_id
+                )
+                sources.extend(broad_results)
+                obs = "OBSERVATION (pre-fetched overview):\n" + self._format_results(broad_results)
+                messages.append({"role": "assistant", "content": "THINK: This is an overview question. I will use the pre-fetched timeline to synthesize a summary."})
+                messages.append({"role": "user", "content": obs})
 
         # ReAct loop
         for iteration in range(self.agent_cfg.max_iterations):
@@ -142,13 +225,13 @@ class VidEngramAgent:
                 response = self.llm.chat.completions.create(
                     model=self.agent_cfg.planning_llm_model,
                     messages=messages,
-                    max_tokens=1024,
+                    max_tokens=2048,
                     temperature=0.2,
                     **extra,
                 )
                 llm_output = response.choices[0].message.content.strip()
             except Exception as e:
-                logger.error(f"Planning LLM error: {e}")
+                logger.error(f"Planning LLM error: {type(e).__name__}: {e}", exc_info=True)
                 return self._fallback_answer(question, video_path, actions, sources)
 
             messages.append({"role": "assistant", "content": llm_output})
@@ -164,9 +247,14 @@ class VidEngramAgent:
                 tool_name = action_match.group(1)
                 params_str = action_match.group(2)
 
+                # Notify caller of this step
+                if step_callback is not None:
+                    step_desc = self._describe_step(tool_name, params_str)
+                    step_callback(step_desc)
+
                 # Execute the tool
                 tool_result, new_sources, new_clips = self._execute_tool(
-                    tool_name, params_str, video_path
+                    tool_name, params_str, video_path, video_duration
                 )
 
                 actions.append(AgentAction(
@@ -183,7 +271,69 @@ class VidEngramAgent:
                 messages.append({"role": "user", "content": observation})
 
             elif "ANSWER:" in llm_output:
-                answer_text = llm_output.split("ANSWER:")[-1].strip()
+                answer_text = self._normalize_timestamps(
+                    llm_output.split("ANSWER:")[-1].strip()
+                )
+                # In All Videos mode, remove all timestamps from the answer
+                if search_scope == "all":
+                    answer_text = self._strip_all_timestamps(answer_text)
+                answer_text = self._strip_calendar_dates_from_answer(answer_text)
+
+                # --- Forced video grounding fallback ---
+                # If look_at_video hasn't been used yet and sources are insufficient,
+                # intercept the answer, run look_at_video, and re-ask the LLM.
+                # Disabled in "all" mode — grounding the current video is wrong for cross-video queries.
+                look_at_video_used = any(a.tool == "look_at_video" for a in actions)
+                if not look_at_video_used and self._sources_insufficient(sources) and search_scope != "all":
+                    if not self.agent_cfg.enable_video_grounding:
+                        logger.warning(
+                            "Insufficient sources but video grounding is disabled "
+                            "(enable_video_grounding=False) — answer may be incomplete."
+                        )
+                    else:
+                        if step_callback is not None:
+                            step_callback("Looking at video for more context…")
+                        grounding = self._forced_video_grounding(
+                            question, sources, video_path, video_duration
+                        )
+                        if grounding:
+                            result_text, clip_path = grounding
+                            if clip_path:
+                                grounded_clips.append(clip_path)
+                            actions.append(AgentAction(
+                                tool="look_at_video",
+                                input_params={"raw": "auto_fallback"},
+                                output=result_text[:500],
+                                reasoning="[Auto-fallback: insufficient memory results]",
+                            ))
+                            messages.append({"role": "user", "content": (
+                                f"OBSERVATION (forced video grounding):\n{result_text}\n\n"
+                                "Revise your ANSWER using this visual information. "
+                                "Output ANSWER: followed by your updated answer."
+                            )})
+                            try:
+                                extra = {}
+                                if "qwen" in self.agent_cfg.planning_llm_model.lower():
+                                    extra["extra_body"] = {"modalities": ["text"]}
+                                gr = self.llm.chat.completions.create(
+                                    model=self.agent_cfg.planning_llm_model,
+                                    messages=messages,
+                                    max_tokens=2048,
+                                    temperature=0.2,
+                                    **extra,
+                                )
+                                gr_output = gr.choices[0].message.content.strip()
+                                if "ANSWER:" in gr_output:
+                                    answer_text = self._normalize_timestamps(
+                                        gr_output.split("ANSWER:")[-1].strip()
+                                    )
+                                    if search_scope == "all":
+                                        answer_text = self._strip_all_timestamps(answer_text)
+                                    answer_text = self._strip_calendar_dates_from_answer(answer_text)
+                            except Exception as e:
+                                logger.warning(f"Forced grounding LLM re-run failed: {e}")
+                # --- End forced grounding ---
+
                 return AgentResponse(
                     answer=answer_text,
                     sources=sources,
@@ -199,8 +349,12 @@ class VidEngramAgent:
                 })
             else:
                 # Treat as answer
+                ans = self._normalize_timestamps(llm_output)
+                if search_scope == "all":
+                    ans = self._strip_all_timestamps(ans)
+                ans = self._strip_calendar_dates_from_answer(ans)
                 return AgentResponse(
-                    answer=llm_output,
+                    answer=ans,
                     sources=sources,
                     actions=actions,
                     grounded_clips=grounded_clips,
@@ -212,7 +366,7 @@ class VidEngramAgent:
     # ── Tool Execution ────────────────────────────────────────────────
 
     def _execute_tool(
-        self, tool_name: str, params_str: str, video_path: str
+        self, tool_name: str, params_str: str, video_path: str, video_duration: Optional[float] = None
     ) -> tuple[str, list[MemoryResult], list[str]]:
         """Execute a tool and return (result_text, new_sources, new_clips)."""
         params = self._parse_params(params_str)
@@ -220,56 +374,78 @@ class VidEngramAgent:
         new_clips: list[str] = []
 
         try:
+            omit_gid = getattr(self, "_search_scope", "current") == "all"
+            cur_gid = getattr(self, "_current_group_id", "")
+
             if tool_name == "search_episodes":
                 query = params.get("query", params_str.strip("'\""))
-                results = self.reader.search_episodes(query, video_path, top_k=5)
+                results = self.reader.search_episodes(query, video_path, top_k=5, omit_group_id=omit_gid)
+                results = self.reader.tag_cross_video_content(results, cur_gid)
                 new_sources = results
                 result_text = self._format_results(results)
 
             elif tool_name == "search_profiles":
                 query = params.get("query", params_str.strip("'\""))
-                results = self.reader.search_profiles(query, video_path, top_k=3)
+                results = self.reader.search_profiles(query, video_path, top_k=3, omit_group_id=omit_gid)
+                results = self.reader.tag_cross_video_content(results, cur_gid)
                 new_sources = results
                 result_text = self._format_results(results)
 
             elif tool_name == "search_deep":
                 query = params.get("query", params_str.strip("'\""))
-                results = self.reader.search_agentic(query, video_path, top_k=10)
+                results = self.reader.search_agentic(query, video_path, top_k=10, omit_group_id=omit_gid)
+                results = self.reader.tag_cross_video_content(results, cur_gid)
                 new_sources = results
                 result_text = self._format_results(results)
 
             elif tool_name == "look_at_video":
                 result_text, clip_path = self._tool_look_at_video(
-                    params, video_path
+                    params, video_path, video_duration
                 )
                 if clip_path:
                     new_clips.append(clip_path)
 
+            elif tool_name == "search_speech":
+                query = params.get("query", params_str.strip("'\""))
+                results = self.reader.search_speech_bm25(query, video_path, top_k=5, omit_group_id=omit_gid)
+                results = self.reader.tag_cross_video_content(results, cur_gid)
+                new_sources = results
+                result_text = self._format_results(results)
+
             elif tool_name == "get_timeline":
-                result_text = self._tool_get_timeline(params, video_path)
+                result_text = self._tool_get_timeline(params, video_path, video_duration)
 
             else:
                 result_text = f"Unknown tool: {tool_name}"
 
         except Exception as e:
-            logger.error(f"Tool execution error ({tool_name}): {e}")
-            result_text = f"Tool error: {e}"
+            logger.error(f"Tool execution error ({tool_name}): {type(e).__name__}: {e}", exc_info=True)
+            result_text = f"Tool error ({tool_name}): {type(e).__name__}: {e}"
 
         return result_text, new_sources, new_clips
 
     def _tool_look_at_video(
-        self, params: dict, video_path: str
+        self, params: dict, video_path: str, video_duration: Optional[float] = None
     ) -> tuple[str, Optional[str]]:
         """Extract a video clip and analyze it with Qwen2.5-Omni.
 
         This is the "context-grounding" feature — the agent can look at
         specific video moments to verify or enrich its answer.
         """
+
         if not self.agent_cfg.enable_video_grounding:
             return "Video grounding disabled.", None
 
-        start_min = float(params.get("start_min", 0))
-        end_min = float(params.get("end_min", start_min + 0.5))
+        max_min = (video_duration / 60) if video_duration is not None else None
+        start_min = self.parse_min(params.get("start_min", 0))
+        end_min = self.parse_min(params.get("end_min", start_min + 0.5))
+        if max_min is not None:
+            start_min = min(start_min, max_min)
+            end_min = min(end_min, max_min)
+        if end_min <= start_min:
+            end_min = start_min + 0.5
+            if max_min is not None:
+                end_min = min(end_min, max_min)
         question = params.get("question", "Describe what you see and hear in detail.")
 
         start_sec = start_min * 60
@@ -293,35 +469,75 @@ class VidEngramAgent:
         )
         return result, clip_path
 
-    def _tool_get_timeline(self, params: dict, video_path: str) -> str:
+    def _tool_get_timeline(self, params: dict, video_path: str, video_duration: Optional[float] = None) -> str:
         """Get all memorized events in a time range."""
-        start_min = float(params.get("start_min", 0))
-        end_min = float(params.get("end_min", 999))
+        max_min = (video_duration / 60) if video_duration is not None else 999
+        start_min = self.parse_min(params.get("start_min", 0))
+        end_min = min(self.parse_min(params.get("end_min", 999)), max_min)
 
-        # Search for all events in this time range
-        query = f"events between {start_min:.0f} and {end_min:.0f} minutes"
+        is_overview = end_min >= 900
+
+        # Use a content-oriented query rather than a time-based one which rarely matches
+        query = "video scenes events dialogue actions" if is_overview else f"events {start_min:.0f} to {end_min:.0f} minutes"
         results = self.reader.search_episodes(query, video_path, top_k=20)
 
-        # Filter to time range and sort
+        # For overview: include everything; for specific range: filter by timestamp
         in_range = []
+        no_ts = []
         for r in results:
             ts = r.timestamp_range
             if ts:
                 start_sec, end_sec = ts
-                if start_sec / 60 >= start_min - 0.5 and end_sec / 60 <= end_min + 0.5:
+                if is_overview or (start_sec / 60 >= start_min - 0.5 and end_sec / 60 <= end_min + 0.5):
                     in_range.append((start_sec, r))
+            elif is_overview:
+                no_ts.append(r)
 
         in_range.sort(key=lambda x: x[0])
 
-        if not in_range:
+        if not in_range and not no_ts:
             return f"No events found between {start_min:.0f}min and {end_min:.0f}min."
 
-        lines = [f"Timeline ({start_min:.0f}min - {end_min:.0f}min):"]
+        label = "Full timeline" if is_overview else f"Timeline ({start_min:.0f}min - {end_min:.0f}min)"
+        lines = [f"{label}:"]
         for sec, r in in_range:
-            lines.append(f"  {fmt_minutes(sec)}: {r.content[:150]}")
+            lines.append(f"  {fmt_minutes(sec)}: {self._strip_injected_dates(r.content[:200])}")
+        for r in no_ts:
+            lines.append(f"  [timestamp unknown]: {self._strip_injected_dates(r.content[:200])}")
         return "\n".join(lines)
 
     # ── Helpers ───────────────────────────────────────────────────────
+
+    _SUMMARY_KEYWORDS = (
+        "总结", "概括", "概述", "summarize", "summary", "overview",
+        "what is the video about", "what's the video about",
+        "tell me about the video", "what does the video", "what happens in the video",
+        "what happened in the video", "整体", "介绍一下这个视频", "这个视频讲的是",
+    )
+
+    @classmethod
+    def _is_summary_question(cls, question: str) -> bool:
+        q = question.lower()
+        return any(kw in q for kw in cls._SUMMARY_KEYWORDS)
+
+    @staticmethod
+    def _describe_step(tool_name: str, params_str: str) -> str:
+        """Return a human-readable description of a tool invocation."""
+        p = params_str.strip().strip("'\"")
+        if tool_name == "search_episodes":
+            return f"Searching memories: {p}"
+        elif tool_name == "search_speech":
+            return f"Searching speech transcripts: {p}"
+        elif tool_name == "search_profiles":
+            return f"Looking up entity register: {p}"
+        elif tool_name == "search_deep":
+            return f"Deep searching: {p}"
+        elif tool_name == "look_at_video":
+            return "Examining video footage"
+        elif tool_name == "get_timeline":
+            return "Scanning video timeline"
+        else:
+            return f"Running {tool_name}({p})"
 
     def _fallback_answer(
         self,
@@ -334,11 +550,15 @@ class VidEngramAgent:
         logger.info("  Using fallback retrieve-and-answer")
 
         if not sources:
-            results = self.reader.search_episodes(question, video_path, top_k=5)
-            sources = results
+            omit_gid = getattr(self, "_search_scope", "current") == "all"
+            cur_gid = getattr(self, "_current_group_id", "")
+            results = self.reader.search_episodes(question, video_path, top_k=8, omit_group_id=omit_gid)
+            if not results:
+                results = self.reader.search_agentic(question, video_path, top_k=10, omit_group_id=omit_gid)
+            sources = self.reader.tag_cross_video_content(results, cur_gid)
 
         context = "\n".join(
-            f"- {r.content[:300]}" for r in sources[:5]
+            f"- {self._strip_injected_dates(r.content[:800])}" for r in sources[:12]
         )
 
         try:
@@ -349,9 +569,12 @@ class VidEngramAgent:
                 model=self.agent_cfg.planning_llm_model,
                 messages=[
                     {"role": "system", "content": (
-                        "You are a video analyst. Answer the question based on "
-                        "the retrieved video memories below. Cite timestamps. "
-                        "If the memories don't contain the answer, say so."
+                        "You are a video analyst. Answer the user's question based on the retrieved video memories. "
+                        "For every factual claim, cite timestamps using EXACTLY [Video M:SS - N:SS] format "
+                        "(e.g. [Video 0:35 - 1:20]) — keep ranges short and precise. "
+                        "NEVER mention real-world calendar dates (e.g. December 16, 2025, in January 2025) in your answer; only use [Video M:SS - N:SS] or phrases like 'at one point in the video'. "
+                        "If the retrieved memories are genuinely insufficient, briefly say so and summarize "
+                        "whatever partial information is available."
                     )},
                     {"role": "user", "content": (
                         f"Question: {question}\n\n"
@@ -362,7 +585,10 @@ class VidEngramAgent:
                 temperature=0.3,
                 **extra,
             )
-            answer = response.choices[0].message.content.strip()
+            answer = self._normalize_timestamps(response.choices[0].message.content.strip())
+            if getattr(self, "_search_scope", "current") == "all":
+                answer = self._strip_all_timestamps(answer)
+            answer = self._strip_calendar_dates_from_answer(answer)
         except Exception as e:
             answer = f"I found {len(sources)} relevant memories but couldn't generate an answer: {e}"
 
@@ -411,6 +637,70 @@ class VidEngramAgent:
         return params
 
     @staticmethod
+    def _sources_insufficient(sources: list[MemoryResult]) -> bool:
+        """Return True if sources are empty or all have low relevance scores.
+
+        Used to decide whether to force a look_at_video fallback.
+        Score threshold of 0.3 is calibrated for hybrid/embedding retrieval (0-1 range).
+        BM25 scores are typically >> 0.3 for any real match, so they won't false-trigger.
+        """
+        if not sources:
+            return True
+        scored = [r.score for r in sources if r.score > 0]
+        if not scored:
+            return False  # No scores available — can't judge, assume sufficient
+        return max(scored) < 0.3
+
+    @staticmethod
+    def _strip_injected_dates(text: str) -> str:
+        """Remove date/time strings from memory content before sending to the LLM.
+
+        EverMemOS may embed virtual create_time or real timestamps (e.g. upload time)
+        into content. Stripping them prevents the agent from citing wrong calendar dates.
+        English only.
+        """
+        # "on January 1, 2025, at 12:00 AM UTC" and variants
+        text = re.sub(
+            r',?\s+(?:on\s+)?[A-Z][a-z]+ \d{1,2}, \d{4}'
+            r'(?:,\s+at\s+[\d:]+\s*(?:AM|PM)\s+UTC)?',
+            '',
+            text,
+            flags=re.IGNORECASE,
+        )
+        # "before/after December 16, 2025", "December 16, 2025"
+        text = re.sub(
+            r'(?:before|after|on)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}',
+            '',
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r'\b[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\b',
+            '',
+            text,
+            flags=re.IGNORECASE,
+        )
+        # "more than X weeks before Month DD, YYYY"
+        text = re.sub(
+            r'(?:more than\s+)?(?:\d+\s+)?(?:weeks?|days?|months?)\s+(?:before|after)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}',
+            '',
+            text,
+            flags=re.IGNORECASE,
+        )
+        # "in January 2025", "in 2025"
+        text = re.sub(r'\bin\s+[A-Z][a-z]+\s+\d{4}\b', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bin\s+(?:19|20)\d{2}\b', '', text, flags=re.IGNORECASE)
+        # ISO date/datetime: 2025-01-01 or 2026-01-01T00:00:00+00:00
+        text = re.sub(
+            r'\b(?:19|20)\d{2}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}[^\s,\]]*)?',
+            '',
+            text,
+        )
+        text = re.sub(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s,\]]*', '', text)
+        text = re.sub(r'  +', ' ', text).strip()
+        return text
+
+    @staticmethod
     def _format_results(results: list[MemoryResult]) -> str:
         """Format retrieval results for the LLM observation."""
         if not results:
@@ -419,5 +709,254 @@ class VidEngramAgent:
         lines = [f"Found {len(results)} results:"]
         for i, r in enumerate(results):
             score_str = f" (score={r.score:.2f})" if r.score else ""
-            lines.append(f"  [{i+1}]{score_str} {r.content[:300]}")
+            content = VidEngramAgent._strip_injected_dates(r.content[:300])
+            lines.append(f"  [{i+1}]{score_str} {content}")
         return "\n".join(lines)
+    
+    @staticmethod
+    def _normalize_timestamps(text: str) -> str:
+        """Wrap bare MM:SS timecodes in canonical [Video M:SS - N:SS] brackets.
+
+        Handles:
+          MM:SS              →  [Video M:SS - N:SS]   (±3 s window around single point)
+          HH:MM:SS           →  [Video H:MM:SS - H:MM:SS]
+          MM:SS - MM:SS      →  [Video M:SS - N:SS]
+          from MM:SS to MM:SS
+        Skips text already in [Video ...] or [Episode ...] format.
+        """
+        if not text:
+            return text
+
+        def _sec_to_ts(sec: float) -> str:
+            h = int(sec // 3600)
+            m = int((sec % 3600) // 60)
+            s = int(sec % 60)
+            if h > 0:
+                return f"{h}:{m:02d}:{s:02d}"
+            return f"{m}:{s:02d}"
+
+        def _parse_mmss(hh_or_mm: str, mm_or_ss: str, ss: str = None) -> float:
+            if ss is not None:
+                return int(hh_or_mm) * 3600 + int(mm_or_ss) * 60 + float(ss)
+            return int(hh_or_mm) * 60 + float(mm_or_ss)
+
+        result = text
+
+        # 0. [Video M:SS] or [Episode M:SS] with no end time → expand to ±1s range
+        bracket_single_re = re.compile(
+            r'\[(Video|Episode)(?:\s+analysis)?\s+(\d{1,2}:\d{2}(?::\d{2})?)\]',
+            re.IGNORECASE,
+        )
+        def _replace_bracket_single(m):
+            kind = m.group(1)
+            ts_str = m.group(2)
+            # Parse the timestamp to seconds
+            parts = ts_str.split(":")
+            if len(parts) == 3:
+                sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            else:
+                sec = int(parts[0]) * 60 + float(parts[1])
+            s_start = max(0.0, sec - 1)
+            s_end = sec + 1
+            return f"[{kind} {_sec_to_ts(s_start)} - {_sec_to_ts(s_end)}]"
+        result = bracket_single_re.sub(_replace_bracket_single, result)
+
+        # 1. Range: MM:SS - MM:SS  or  MM:SS to MM:SS
+        range_re = re.compile(
+            r'\b(\d{1,2}):(\d{2})\s*(?:-|to)\s*(\d{1,2}):(\d{2})\b'
+        )
+        def _replace_range(m):
+            start = m.start()
+            preceding = result[max(0, start - 80):start]
+            open_count = preceding.count('[') - preceding.count(']')
+            if open_count > 0:
+                return m.group(0)
+            s1 = _parse_mmss(m.group(1), m.group(2))
+            s2 = _parse_mmss(m.group(3), m.group(4))
+            return f"[Video {_sec_to_ts(s1)} - {_sec_to_ts(s2)}]"
+        result = range_re.sub(_replace_range, result)
+
+        # 2. Single MM:SS — only when NOT already inside [Video ...] / [Episode ...]
+        single_re = re.compile(
+            r'(?:^|(?<=\s)|(?<=[(\[,]))(\d{1,2}):(\d{2})(?=\s|$|[)\].,;])'
+        )
+        def _replace_single(m):
+            start = m.start()
+            preceding = result[max(0, start - 80):start]
+            open_count = preceding.count('[') - preceding.count(']')
+            if open_count > 0:
+                return m.group(0)
+            sec = _parse_mmss(m.group(1), m.group(2))
+            s_start = max(0.0, sec - 3)
+            s_end = sec + 3
+            return f"[Video {_sec_to_ts(s_start)} - {_sec_to_ts(s_end)}]"
+        result = single_re.sub(_replace_single, result)
+
+        return result
+
+    @staticmethod
+    def _strip_cross_video_timestamps(text: str) -> str:
+        """Remove any [SomeName M:SS - N:SS] patterns that are not [Video ...] or [Episode ...].
+
+        Belt-and-suspenders for ALL VIDEOS mode: the LLM should not emit cross-video
+        timestamps (memories arrive without them), but if it hallucinates one, strip it.
+        """
+        return re.sub(
+            r'\[(?!(?:Video|Episode)(?:\s+analysis)?\s+\d)(?:[^\]]+\d+:\d{2}[^\]]*)\]',
+            '',
+            text,
+        ).strip()
+
+    @staticmethod
+    def _strip_all_timestamps(text: str) -> str:
+        """Remove all [Video/Episode M:SS - N:SS] and [Video/Episode M:SS] timestamp citations.
+
+        Used in ALL VIDEOS mode so answers contain no timestamps (direct deletion).
+        """
+        if not text:
+            return text
+        # Range: [Video 0:06 - 0:11], [Episode analysis 1:30 - 2:00], H:MM:SS supported
+        text = re.sub(
+            r"\[(?:Video|Episode)(?:\s+analysis)?\s+\d{1,2}:\d{2}(?::\d{2})?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?\]",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        # Single: [Video 0:06], [Episode 1:30]
+        text = re.sub(
+            r"\[(?:Video|Episode)(?:\s+analysis)?\s+\d{1,2}:\d{2}(?::\d{2})?\]",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        # Collapse multiple spaces and clean up
+        text = re.sub(r"  +", " ", text).strip()
+        return text
+
+    _NEUTRAL_PHRASE = "at one point in the video"
+
+    @classmethod
+    def _strip_calendar_dates_from_answer(cls, text: str) -> str:
+        """Remove real-world calendar dates from the answer and replace with a neutral phrase.
+
+        Prevents the model from outputting wrong dates (e.g. upload/index time). English only.
+        """
+        if not text:
+            return text
+        neutral = cls._NEUTRAL_PHRASE
+        # "more than X weeks/days before/after Month DD, YYYY" or "X weeks before December 16, 2025"
+        text = re.sub(
+            r"(?:more than\s+)?(?:\d+\s+)?(?:weeks?|days?|months?)\s+"
+            r"(?:before|after)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}",
+            neutral,
+            text,
+            flags=re.IGNORECASE,
+        )
+        # "before/after December 16, 2025" or "on December 16, 2025"
+        text = re.sub(
+            r"(?:before|after|on)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}",
+            neutral,
+            text,
+            flags=re.IGNORECASE,
+        )
+        # "December 16, 2025" (Month DD, YYYY)
+        text = re.sub(
+            r"\b[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\b",
+            neutral,
+            text,
+            flags=re.IGNORECASE,
+        )
+        # "in January 2025", "in 2025"
+        text = re.sub(
+            r"\bin\s+[A-Z][a-z]+\s+\d{4}\b",
+            neutral,
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"\bin\s+(?:19|20)\d{2}\b",
+            neutral,
+            text,
+            flags=re.IGNORECASE,
+        )
+        # ISO: 2025-12-16 or 2026-01-01T00:00:00...
+        text = re.sub(
+            r"\b(?:19|20)\d{2}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}[^\s]*)?\b",
+            neutral,
+            text,
+        )
+        # "on January 1, 2025, at 12:00 AM UTC" (already partially covered; catch "at HH:MM AM/PM UTC" tail)
+        text = re.sub(
+            r",\s*at\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s+UTC",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        # Collapse repeated neutral phrase and fix spacing
+        text = re.sub(rf"(?:\s*{re.escape(neutral)}\s*)+", f" {neutral} ", text)
+        text = re.sub(r"  +", " ", text).strip()
+        return text
+
+    def _forced_video_grounding(
+        self,
+        question: str,
+        sources: list[MemoryResult],
+        video_path: str,
+        video_duration: Optional[float],
+    ) -> Optional[tuple[str, Optional[str]]]:
+        """Pick the best clip to examine and call look_at_video.
+
+        Clip selection:
+        - Has sources with timestamps → use the highest-scored one.
+          Window = [start_sec, start_sec + 30s], or segment's own end_sec if < 30s.
+        - No timestamps anywhere → fall back to the video midpoint ±15s.
+        """
+        MAX_WINDOW_SEC = 30.0
+
+        best_start_sec: Optional[float] = None
+        best_end_sec: Optional[float] = None
+
+        # Sort by score descending; pick the first source that carries a timestamp
+        for r in sorted(sources, key=lambda r: r.score, reverse=True):
+            ts = r.timestamp_range
+            if ts:
+                start_sec, end_sec = ts
+                segment_len = end_sec - start_sec
+                best_start_sec = start_sec
+                best_end_sec = end_sec if segment_len <= MAX_WINDOW_SEC else start_sec + MAX_WINDOW_SEC
+                break
+
+        # Fallback: video midpoint
+        if best_start_sec is None:
+            if not video_duration:
+                logger.warning("Forced grounding: no sources with timestamps and no video_duration — skipping.")
+                return None
+            mid = video_duration / 2
+            best_start_sec = max(0.0, mid - 15.0)
+            best_end_sec = min(video_duration, mid + 15.0)
+
+        # Clamp to video duration
+        if video_duration:
+            best_end_sec = min(best_end_sec, video_duration)
+
+        logger.info(
+            f"  Forced video grounding: [{best_start_sec:.1f}s - {best_end_sec:.1f}s] "
+            f"({'from source timestamp' if sources else 'midpoint fallback'})"
+        )
+
+        params = {
+            "start_min": best_start_sec / 60.0,
+            "end_min": best_end_sec / 60.0,
+            "question": question,
+        }
+        return self._tool_look_at_video(params, video_path)
+
+    @staticmethod
+    def parse_min(val, default=0):
+        if isinstance(val, (int, float)):
+            return float(val)
+        try:
+            return float(str(val).replace("min", "").replace("s", "").strip())
+        except (ValueError, AttributeError):
+            logger.warning(f"parse_min: could not convert {val!r} to float, using default={default}")
+            return float(default)

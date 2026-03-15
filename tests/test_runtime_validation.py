@@ -93,10 +93,10 @@ def test_data_classes_serializable():
     cap = Caption("s1", "A dog runs", start_sec=0.0, end_sec=30.0)
     assert cap.raw_text == "A dog runs"
 
-    mem = ConsolidatedMemory("m1", "[Video 0.0 - 0.5 min] Dog", 0.0, 30.0, "segment", ["s1"])
+    mem = ConsolidatedMemory("m1", "[Video 0:00 - 0:30] Dog", 0.0, 30.0, "segment", ["s1"])
     assert mem.memory_type == "segment"
 
-    mr = MemoryResult("[Video 1.5 - 3.0 min] Something", 0.9, "episodic_memory")
+    mr = MemoryResult("[Video 1:30 - 3:00] Something", 0.9, "episodic_memory")
     assert mr.timestamp_range == (90.0, 180.0)
 
     mr2 = MemoryResult("No timestamps here")
@@ -421,17 +421,18 @@ def test_writer_write_memories_full():
 
     mock_session = MagicMock()
     mock_session.post.return_value = MagicMock(status_code=200)
-    writer._session = mock_session
+    # _write_single now uses _get_session() (thread-local), not _session directly
+    writer._get_session = lambda: mock_session
 
     memories = [
-        ConsolidatedMemory(f"m{i}", f"[Video {i}.0min] Content {i}", i*30.0, (i+1)*30.0, "segment")
+        ConsolidatedMemory(f"m{i}", f"[Video {i//2}:{(i%2)*30:02d}] Content {i}", i*30.0, (i+1)*30.0, "segment")
         for i in range(3)
     ]
 
     # Override sleep to speed up test
     with patch("videngram.memory_writer.time.sleep"):
         stats = writer.write_memories(memories, "/path/to/my_video.mp4",
-                                       delay_between=0, wait_for_indexing=0)
+                                       wait_for_indexing=0)
 
     assert stats["total"] == 3
     assert stats["success"] == 3
@@ -473,7 +474,8 @@ def test_writer_partial_failure():
         MagicMock(status_code=201),
     ]
     mock_session.post.side_effect = responses
-    writer._session = mock_session
+    # _write_single now uses _get_session() (thread-local), not _session directly
+    writer._get_session = lambda: mock_session
 
     memories = [
         ConsolidatedMemory(f"m{i}", f"Content {i}", i*30.0, (i+1)*30.0, "segment")
@@ -481,7 +483,7 @@ def test_writer_partial_failure():
     ]
 
     with patch("videngram.memory_writer.time.sleep"):
-        stats = writer.write_memories(memories, "/v.mp4", delay_between=0, wait_for_indexing=0)
+        stats = writer.write_memories(memories, "/v.mp4", wait_for_indexing=0)
 
     assert stats["success"] == 2
     assert stats["failed"] == 1
@@ -505,8 +507,8 @@ def test_reader_search_episodes_full():
     mock_session.post.return_value = MagicMock(
         status_code=200,
         json=lambda: {"results": [
-            {"content": "[Video 1.0 - 2.0 min] Meeting discussion", "score": 0.92, "memory_type": "episodic_memory"},
-            {"content": "[Video 2.0 - 3.0 min] Product demo", "score": 0.85, "memory_type": "episodic_memory"},
+            {"content": "[Video 1:00 - 2:00] Meeting discussion", "score": 0.92, "memory_type": "episodic_memory"},
+            {"content": "[Video 2:00 - 3:00] Product demo", "score": 0.85, "memory_type": "episodic_memory"},
         ]}
     )
     reader._session = mock_session
@@ -605,7 +607,7 @@ def test_agent_react_loop():
         # Mock the reader that agent calls internally
         with patch.object(agent.reader, "search_episodes") as mock_search:
             mock_search.return_value = [
-                MagicMock(content="[Video 2.5 - 3.0 min] Quarterly meeting", score=0.9)
+                MagicMock(content="[Video 2:30 - 3:00] Quarterly meeting", score=0.9)
             ]
 
             response = agent.query("What happened in the meeting?", "/video.mp4")
@@ -715,6 +717,7 @@ def test_pipeline_ingest_full():
         with patch.object(pipe.segmenter, "segment") as mock_seg, \
              patch.object(pipe.writer, "check_health", return_value=True), \
              patch.object(pipe.writer, "write_memories") as mock_write, \
+             patch.object(pipe.writer, "_write_single", return_value=True) as mock_write_single, \
              patch("videngram.captioner.Path.exists", return_value=True):
 
             from videngram.utils import VideoSegment
@@ -722,7 +725,7 @@ def test_pipeline_ingest_full():
                 VideoSegment("s0", "/v.mp4", 0.0, 30.0, "/tmp/s0.mp4"),
                 VideoSegment("s1", "/v.mp4", 30.0, 60.0, "/tmp/s1.mp4"),
             ]
-            mock_write.return_value = {"total": 5, "success": 5, "failed": 0}
+            mock_write.return_value = {"total": 3, "success": 3, "failed": 0}
 
             stats = pipe.ingest("/v.mp4")
 
@@ -730,13 +733,18 @@ def test_pipeline_ingest_full():
         assert stats["captions"] == 2
         assert stats["memories_total"] > 0
         assert "total_time" in stats
-        # Writer should have been called with consolidated memories
+        # Segment memories are streamed via _write_single during captioning
+        assert mock_write_single.call_count == 2, (
+            f"Expected 2 streaming segment writes, got {mock_write_single.call_count}"
+        )
+        assert stats["memories_segments"] == 2
+        # write_memories called once for higher-order memories (episodes + entity)
         mock_write.assert_called_once()
         memories_arg = mock_write.call_args[0][0]
-        assert len(memories_arg) > 0
-        # Check memory types present
+        # Higher-order memories should NOT include segment type (already streamed)
         types = {m.memory_type for m in memories_arg}
-        assert "segment" in types
+        assert "segment" not in types, f"Segment memories should be streamed, not in write_memories: {types}"
+        assert "episode_summary" in types or len(memories_arg) == 0
 
 check("Full ingest pipeline (segment → caption → consolidate → write)", test_pipeline_ingest_full)
 

@@ -14,6 +14,7 @@ Usage:
     python -m demo.cli query path/to/video.mp4 "What happened in the first 5 minutes?"
 """
 import argparse
+import base64
 import logging
 import sys
 
@@ -28,10 +29,39 @@ def setup_logging(verbose: bool = False):
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    # Suppress HTTP client libraries that log full request/response bodies at DEBUG
+    for noisy in ("httpx", "httpcore", "openai", "openai._base_client", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def cmd_ingest(args):
     """Ingest a video into VidEngram memory."""
+    import json as _json
+
+    def _encode_event(obj: dict) -> str:
+        return base64.b64encode(_json.dumps(obj, ensure_ascii=False).encode("utf-8")).decode("ascii")
+
+    def on_caption_ready(event_type, seg_or_segs, data):
+        """Emit structured JSON events so the demo web UI can sync video playback."""
+        if event_type == "segments":
+            segs_list = seg_or_segs
+            seg_data = [
+                {"index": i, "start_sec": s.start_sec, "end_sec": s.end_sec}
+                for i, s in enumerate(segs_list)
+            ]
+            payload = {"count": len(seg_data), "segments": seg_data}
+            print(f"SEGMENTS_JSON_B64: {_encode_event(payload)}", flush=True)
+        elif event_type == "caption":
+            index, cap = data
+            seg = seg_or_segs
+            payload = {
+                "index": index,
+                "start_sec": seg.start_sec,
+                "end_sec": seg.end_sec,
+                "text": cap.raw_text,
+            }
+            print(f"CAPTION_JSON_B64: {_encode_event(payload)}", flush=True)
+
     pipeline = VidEngramPipeline()
     print(f"\n🎬 Ingesting: {args.video}")
     print("This may take a while depending on video length...\n")
@@ -39,6 +69,7 @@ def cmd_ingest(args):
     stats = pipeline.ingest(
         args.video,
         parallel_caption=args.parallel,
+        on_caption_ready=on_caption_ready,
     )
     print("\n✅ Ingestion complete!")
 

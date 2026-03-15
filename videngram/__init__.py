@@ -24,6 +24,7 @@ from .config import (
     SegmenterConfig,
     CaptionerConfig,
     ConsolidatorConfig,
+    TranscriberConfig,
     AgentConfig,
 )
 from .utils import (
@@ -38,6 +39,7 @@ from .pipeline import VidEngramPipeline
 from .segmenter import VideoSegmenter
 from .captioner import Captioner
 from .consolidator import Consolidator
+from .transcriber import SpeechTranscriber
 from .memory_writer import MemoryWriter
 from .memory_reader import MemoryReader
 from .agent import VidEngramAgent
@@ -45,8 +47,9 @@ from .agent import VidEngramAgent
 __all__ = [
     "VidEngramPipeline",
     "VidEngramConfig", "QwenOmniConfig", "EverMemOSConfig",
-    "SegmenterConfig", "CaptionerConfig", "ConsolidatorConfig", "AgentConfig",
-    "VideoSegmenter", "Captioner", "Consolidator",
+    "SegmenterConfig", "CaptionerConfig", "ConsolidatorConfig",
+    "TranscriberConfig", "AgentConfig",
+    "VideoSegmenter", "Captioner", "Consolidator", "SpeechTranscriber",
     "MemoryWriter", "MemoryReader", "VidEngramAgent",
     "VideoSegment", "Caption", "ConsolidatedMemory",
     "MemoryResult", "AgentAction", "AgentResponse",

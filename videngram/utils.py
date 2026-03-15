@@ -7,7 +7,6 @@ import logging
 import subprocess
 import json
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +23,7 @@ class VideoSegment:
     start_sec: float         # Start time in video (seconds)
     end_sec: float           # End time in video (seconds)
     clip_path: Optional[str] = None  # Path to extracted .mp4 clip
+    asr_text: Optional[str] = None   # Whisper transcript for this segment's time window
 
     def __post_init__(self):
         self.start_sec = float(self.start_sec)
@@ -61,7 +61,7 @@ class ConsolidatedMemory:
     content: str              # Enriched text for EverMemOS content field
     start_sec: float          # Earliest timestamp in this memory
     end_sec: float            # Latest timestamp
-    memory_type: str = "segment"  # "segment" | "episode_summary" | "entity_profile"
+    memory_type: str = "segment"  # "segment" | "episode_summary" | "entity_register"
     source_segments: list = field(default_factory=list)  # List of segment_ids
     metadata: dict = field(default_factory=dict)
 
@@ -77,27 +77,27 @@ class MemoryResult:
     @property
     def timestamp_range(self) -> Optional[tuple]:
         """Extract (start_sec, end_sec) from content if present.
-        
+
         Handles all content formats produced by the consolidator and agent:
-          - [Video 1.5min - 3.0min] ...       (segment memories)
-          - [Episode 0.0min - 5.0min] ...      (episode summaries)
-          - [Video analysis 1.5min - 3.0min]   (agent grounding)
+          - [Video 1:30 - 3:00] ...          (segment memories)
+          - [Episode 0:00 - 5:00] ...         (episode summaries)
+          - [Video analysis 1:30 - 3:00]      (agent grounding)
+          - [Video 1:30:45 - 1:32:00]         (H:MM:SS for long videos)
         """
         import re
-        # Match: [Video|Episode (optional "analysis")] Xmin - Ymin]
+
+        def _parse_ts(ts: str) -> float:
+            parts = ts.split(":")
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            return int(parts[0]) * 60 + int(parts[1])
+
         match = re.search(
-            r"\[(?:Video|Episode)(?:\s+analysis)?\s+(\d+\.?\d*)min\s*-\s*(\d+\.?\d*)min\]",
+            r"\[(?:Video|Episode)(?:\s+analysis)?\s+(\d+:\d{2}(?::\d{2})?)\s*-\s*(\d+:\d{2}(?::\d{2})?)\]",
             self.content,
         )
         if match:
-            return float(match.group(1)) * 60, float(match.group(2)) * 60
-        # Fallback: try space-separated format [Video X - Y min]
-        match = re.search(
-            r"\[Video\s+(\d+\.?\d*)\s*-\s*(\d+\.?\d*)\s*min\]",
-            self.content,
-        )
-        if match:
-            return float(match.group(1)) * 60, float(match.group(2)) * 60
+            return _parse_ts(match.group(1)), _parse_ts(match.group(2))
         return None
 
 
@@ -117,38 +117,6 @@ class AgentResponse:
     sources: list = field(default_factory=list)   # List of MemoryResult
     actions: list = field(default_factory=list)    # List of AgentAction
     grounded_clips: list = field(default_factory=list)  # Paths to relevant clips
-
-
-# ── Timestamp Mapping ─────────────────────────────────────────────────────
-
-def video_sec_to_datetime(
-    video_sec: float,
-    base_datetime: str = "2025-01-01T00:00:00+00:00",
-    time_scale_factor: int = 60,
-) -> str:
-    """Map video seconds → virtual datetime for EverMemOS create_time.
-
-    We scale video time so that 1 video-second = `time_scale_factor`
-    virtual-seconds. This gives EverMemOS's temporal reasoning enough
-    spread to distinguish events that are only seconds apart in the video.
-
-    Example: video_sec=90 with scale=60 → base + 5400 seconds = 1.5 hours later.
-    """
-    base = datetime.fromisoformat(base_datetime)
-    delta = timedelta(seconds=video_sec * time_scale_factor)
-    return (base + delta).isoformat()
-
-
-def datetime_to_video_sec(
-    dt_str: str,
-    base_datetime: str = "2025-01-01T00:00:00+00:00",
-    time_scale_factor: int = 60,
-) -> float:
-    """Inverse of video_sec_to_datetime."""
-    base = datetime.fromisoformat(base_datetime)
-    dt = datetime.fromisoformat(dt_str)
-    total_sec = (dt - base).total_seconds()
-    return total_sec / time_scale_factor
 
 
 # ── FFmpeg Helpers ────────────────────────────────────────────────────────
@@ -209,5 +177,5 @@ def _fmt_time(seconds: float) -> str:
 
 
 def fmt_minutes(seconds: float) -> str:
-    """Format as decimal minutes like '1.5min'."""
-    return f"{seconds / 60:.1f}min"
+    """Format seconds as M:SS or H:MM:SS timecode (e.g. '1:30', '10:05')."""
+    return _fmt_time(seconds)

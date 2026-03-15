@@ -9,6 +9,9 @@ build/
 # Environment / secrets
 .env
 
+# Virtual environment
+.venv/
+
 # Logs
 logs/
 

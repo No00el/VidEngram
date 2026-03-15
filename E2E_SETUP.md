@@ -20,21 +20,49 @@ Download these to a local directory (referred to as `$CKPT_DIR` below):
 | [Qwen3-Embedding-4B](https://huggingface.co/Qwen/Qwen3-Embedding-4B) | ~8GB bf16 | EverMemOS vector embeddings |
 | [Qwen3-Reranker-4B](https://huggingface.co/Qwen/Qwen3-Reranker-4B) | ~8GB bf16 | EverMemOS reranking |
 
+## Deployment topology
+
+VidEngram splits compute across two machines:
+
+```
+┌─────────────────────────────┐     ┌──────────────────────────────────────┐
+│       Local machine         │     │          Remote GPU server           │
+│                             │     │                                      │
+│  EverMemOS  (port 8001)     │     │  Qwen2.5-Omni-7B     (port 8091)    │
+│  MongoDB / ES / Milvus /    │     │  Qwen3-Embedding-4B  (port 8000)    │
+│    Redis  (Docker)          │     │  Qwen3-Reranker-4B   (port 12000)   │
+│                             │     │                                      │
+│  VidEngram backend          │     │  Videos SCP'd here; ffmpeg/Qwen     │
+│    (port 7860)   ───────────┼────▶│  run here via SSH                   │
+└─────────────────────────────┘     └──────────────────────────────────────┘
+```
+
+The backend on your local machine connects to the remote vLLM servers. Set
+`QWEN_BASE_URL` in `.env` to the remote server's address (see Step 6), or use
+SSH port forwarding:
+
+```bash
+ssh -L 8091:localhost:8091 -L 8000:localhost:8000 -L 12000:localhost:12000 user@remote-gpu-server
+```
+
 ## Architecture overview
 
 ```
-Video --> Segmenter (ffmpeg) --> Captioner (Qwen2.5-Omni)
+Video --> Segmenter (ffmpeg, on remote) --> Captioner (Qwen2.5-Omni, on remote)
       --> Consolidator (GPT-4o-mini or other text LLM)
       --> MemoryWriter --> EverMemOS
                               |
                               v
                     MongoDB / Elasticsearch / Milvus / Redis
 
-Query --> Agent (GPT-4o-mini ReAct loop)
+Query --> Backend (FastAPI :7860, local)
+            |
+            v
+          Agent (GPT-4o-mini ReAct loop)
             |-- search_episodes   --> EverMemOS
             |-- search_profiles   --> EverMemOS
             |-- search_deep       --> EverMemOS
-            |-- look_at_video     --> Qwen2.5-Omni (video grounding)
+            |-- look_at_video     --> Qwen2.5-Omni (video grounding, on remote)
             |-- get_timeline      --> EverMemOS
             v
           Answer with timestamps + sources
@@ -87,16 +115,21 @@ LLM_BASE_URL=https://api.openai.com/v1       # or your LiteLLM proxy
 LLM_API_KEY=<your-api-key>
 LLM_MODEL=gpt-4o-mini
 
-# Local vLLM embedding + reranker
+# Embedding + Reranker are on the remote GPU server.
+# Requires SSH port forwarding (see Deployment topology) or direct IP.
 EMBEDDING_BASE_URL=http://localhost:8000/v1
+# Or: EMBEDDING_BASE_URL=http://<remote-server-ip>:8000/v1
 EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
 RERANKER_BASE_URL=http://localhost:12000/v1
+# Or: RERANKER_BASE_URL=http://<remote-server-ip>:12000/v1
 RERANKER_MODEL=Qwen/Qwen3-Reranker-4B
 ```
 
 See `env.template` for all available options.
 
-## Step 4: Start vLLM model servers
+## Step 4: Start vLLM model servers (on remote GPU server)
+
+> **Run all commands in this step on the remote GPU server**, not your local machine.
 
 Edit `serve_all.sh` to match your setup:
 
@@ -107,23 +140,25 @@ Edit `serve_all.sh` to match your setup:
 Then launch:
 
 ```bash
+cd /path/to/videngram   # project root on the remote server
+conda activate vllm
 bash serve_all.sh
 ```
 
 This starts three servers:
 
-| Model | Default Port | Notes |
-|-------|-------------|-------|
-| Qwen3-Embedding-4B | 8000 | ~8GB VRAM |
-| Qwen3-Reranker-4B | 12000 | ~8GB VRAM, can share GPU with embedding |
-| Qwen2.5-Omni-7B | 8091 | ~14GB VRAM, needs `--allowed-local-media-path` |
+| Model | Default Port | GPU | Notes |
+|-------|-------------|-----|-------|
+| Qwen2.5-Omni-7B | 8091 | GPU 0 (dedicated) | ~14GB VRAM, needs `--allowed-local-media-path` |
+| Qwen3-Embedding-4B | 8000 | GPU 2 (shared) | ~8GB VRAM |
+| Qwen3-Reranker-4B | 12000 | GPU 2 (shared) | ~8GB VRAM, can share GPU with embedding |
 
-Wait a few minutes for models to load, then verify:
+Wait a few minutes for models to load, then verify on the remote server:
 
 ```bash
+curl -s http://localhost:8091/v1/models | python3 -m json.tool
 curl -s http://localhost:8000/v1/models | python3 -m json.tool
 curl -s http://localhost:12000/v1/models | python3 -m json.tool
-curl -s http://localhost:8091/v1/models | python3 -m json.tool
 ```
 
 **GPU layout tips:**
@@ -137,6 +172,7 @@ curl -s http://localhost:8091/v1/models | python3 -m json.tool
 ## Step 5: Start EverMemOS
 
 ```bash
+# In a new terminal
 cd EverMemOS
 uv run python src/run.py --port 8001
 ```
@@ -157,8 +193,11 @@ cp .env.template .env
 Edit `.env`:
 
 ```bash
-# Qwen2.5-Omni for video captioning (local vLLM)
+# Qwen2.5-Omni for video captioning (vLLM on remote GPU server)
+# If using SSH port forwarding (ssh -L 8091:localhost:8091 ...):
 QWEN_BASE_URL=http://localhost:8091/v1
+# Or connect directly to the remote server:
+# QWEN_BASE_URL=http://<remote-server-ip>:8091/v1
 QWEN_MODEL=Qwen/Qwen2.5-Omni-7B
 QWEN_API_KEY=EMPTY
 
@@ -166,8 +205,14 @@ QWEN_API_KEY=EMPTY
 EVERMEMOS_BASE_URL=http://localhost:8001
 
 # LLM for EverMemOS internal memory extraction
-LLM_API_KEY=<your-api-key>
-LLM_MODEL=gpt-4o-mini
+# Default: local Qwen (no extra cost, lower quality)
+LLM_API_KEY=EMPTY
+LLM_MODEL=Qwen/Qwen2.5-Omni-7B
+LLM_BASE_URL=http://localhost:8091/v1
+# Recommended: use an external text LLM for better extraction quality
+# LLM_BASE_URL=https://api.openai.com/v1
+# LLM_API_KEY=<your-api-key>
+# LLM_MODEL=gpt-4o-mini
 
 # Text LLM for agent reasoning + consolidation (any OpenAI-compatible endpoint)
 PLANNING_LLM_BASE_URL=https://api.openai.com/v1   # or your LiteLLM proxy URL + /v1
@@ -178,18 +223,61 @@ PLANNING_LLM_API_KEY=<your-api-key>
 VIDENGRAM_WORK_DIR=/tmp/videngram
 ```
 
+### Optional: Speech transcription (strongly recommended)
+
+```bash
+# Whisper-compatible ASR API
+TRANSCRIBER_BASE_URL=https://api.openai.com/v1
+TRANSCRIBER_API_KEY=<your-api-key>
+TRANSCRIBER_MODEL=whisper-1
+```
+
+Without `TRANSCRIBER_API_KEY`, ASR is skipped entirely:
+- Video segmentation falls back to silence/scene detection only
+- Subtitles are disabled
+- Qwen self-transcribes dialogue (lower accuracy)
+- No speech memories are stored in EverMemOS
+
+### Optional: Remote processing via SSH
+
+```bash
+# When both are set, uploaded videos are SCP'd to the remote server and all
+# ffmpeg/ffprobe/captioner/transcriber operations run via SSH on that server.
+# Leave unset to run everything locally (requires local ffmpeg).
+REMOTE_HOST=user@your-remote-host
+REMOTE_WORK_DIR=/home/user/videngram/work
+```
+
 The `PLANNING_LLM_*` variables control which LLM the agent and consolidator use for
 text-only tasks. If unset, they fall back to Qwen2.5-Omni (not recommended).
 
 ## Step 7: Install VidEngram dependencies
 
 ```bash
+# Step 1: Create a virtual environment (choose one)
+python -m venv .venv   # standard library
+# or
+uv venv                # faster, requires uv
+
+# Step 2: Activate and install
+source .venv/bin/activate
 pip install -e .
-# or if not using editable install:
-pip install openai requests python-dotenv
 ```
 
-## Step 8: Run VidEngram
+This installs the `videngram` package along with all dependencies including the
+FastAPI backend (`fastapi`, `uvicorn`, `python-multipart`, `aiofiles`).
+
+## Step 8: Run VidEngram backend
+
+```bash
+# In a new terminal
+cd /path/to/videngram
+source .venv/bin/activate
+uvicorn backend.server:app --host 0.0.0.0 --port 7860
+```
+
+The backend serves a web UI at `http://localhost:7860` and exposes REST + SSE
+endpoints for video ingestion, memory querying, and analysis.
 
 ### Health check
 
@@ -205,34 +293,42 @@ if not issues:
 "
 ```
 
-### Ingest a video
+### Key API endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Web UI (frontend/index.html) |
+| `/upload` | POST | Upload a video file (optionally SCP to remote) |
+| `/ingest` | POST | Ingest a video into EverMemOS (streams progress via SSE) |
+| `/qa` | POST | Agentic Q&A over ingested video (streams steps + answer via SSE) |
+| `/analyze` | POST | Memory-augmented frame analysis (streams tokens via SSE) |
+| `/memories` | GET | Get memory matching a specific video timestamp |
+| `/memory_cues` | GET | All timestamped memories (scene + dialogue) |
+| `/subtitle_cues` | GET | Subtitle cues derived from memory timestamps |
+| `/speech_cues` | GET | Whisper transcription cues |
+| `/segment_cues` | GET | Raw segment captions |
+| `/videos` | GET | List all ingested videos |
+| `/switch_video` | POST | Switch active video context |
+| `/graph/data` | GET | Relationship graph for current video |
+
+All streaming endpoints (`/ingest`, `/qa`, `/analyze`) return
+[Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events).
+
+### Alternative: CLI usage
+
+For scripting or quick testing without the backend:
 
 ```bash
+# Ingest a video
 python -m demo.cli ingest /path/to/video.mp4
-```
 
-Expected output: segments created, captions generated (Qwen), episodes + profiles
-consolidated (GPT), memories written to EverMemOS.
-
-### Query
-
-```bash
+# Single query
 python -m demo.cli query /path/to/video.mp4 "What happens in this video?"
-```
 
-The agent uses GPT-4o-mini to reason through the ReAct loop, calling tools like
-`search_episodes`, `search_profiles`, or `look_at_video`, then produces a final
-answer with timestamps and sources.
-
-### Interactive chat
-
-```bash
+# Interactive chat
 python -m demo.cli chat /path/to/video.mp4
-```
 
-If the video hasn't been ingested yet:
-
-```bash
+# Ingest then chat in one step
 python -m demo.cli chat --ingest-first /path/to/video.mp4
 ```
 
@@ -293,12 +389,20 @@ curl -X DELETE "http://localhost:8001/api/v1/memories" \
 - Make sure Docker containers are healthy: `docker compose ps`
 - Elasticsearch needs ~30s to fully initialize
 
+**No subtitles or speech memories**
+- Set `TRANSCRIBER_API_KEY` in `.env` to enable Whisper ASR
+- Without it, speech is not transcribed and subtitle cues will be empty
+
 **Stop everything**
 
 ```bash
-pkill -f "vllm serve"                          # vLLM servers
+# On the remote GPU server:
+pkill -f "vllm serve"
+
+# On your local machine:
 cd EverMemOS && docker compose down            # Docker infra
 # EverMemOS: Ctrl+C in its terminal
+# Backend: Ctrl+C in its terminal
 ```
 
 ## Startup order summary
@@ -306,11 +410,13 @@ cd EverMemOS && docker compose down            # Docker infra
 | Order | Service | Command | Ports |
 |-------|---------|---------|-------|
 | 1 | Docker infra | `cd EverMemOS && docker compose up -d` | 27017, 19200, 19530, 6379 |
-| 2 | vLLM servers | `bash serve_all.sh` | 8000, 8091, 12000 |
+| 2 | vLLM servers **(remote)** | `bash serve_all.sh` | 8091, 8000, 12000 |
 | 3 | EverMemOS | `cd EverMemOS && uv run python src/run.py --port 8001` | 8001 |
-| 4 | VidEngram | `python -m demo.cli ...` | - |
+| 4 | VidEngram backend | `cd /path/to/videngram && source .venv/bin/activate && uvicorn backend.server:app --host 0.0.0.0 --port 7860` | 7860 |
 
 ## Code changes from original template
+
+### Modifications to existing files
 
 | File | Change | Why |
 |------|--------|-----|
@@ -321,3 +427,11 @@ cd EverMemOS && docker compose down            # Docker infra
 | `videngram/agent.py` | Conditional `extra_body` for Qwen only | Non-Qwen LLMs don't need `modalities: ["text"]` |
 | `videngram/consolidator.py` | Use external text LLM for summaries + profiles | Better quality than Qwen for text-only tasks |
 | `serve_all.sh` | Split models across GPUs, set `--allowed-local-media-path` | Avoid OOM; required for local file access |
+
+### New components
+
+| File | Purpose |
+|------|---------|
+| `backend/server.py` | FastAPI backend with REST + SSE endpoints; manages video state, memory cache, video history, and graph building |
+| `backend/graph_builder.py` | Async background task that extracts entity relationship graphs from EverMemOS memories |
+| `frontend/index.html` | Static single-page web UI served directly by the backend; no build step required |
