@@ -33,49 +33,56 @@ https://youtu.be/1Y4f9qc9w7g
 flowchart TD
     V([🎬 Video Input])
 
-    V --> A
+    subgraph INGEST ["⚙️ Ingestion Pipeline"]
+        direction LR
+        A["**1. ASR Transcriber**
+        Whisper API
+        speech segments + timestamps"]
+        -->|transcript|
+        B["**2. Temporal Segmenter**
+        ASR + ffmpeg scene/silence
+        min/max duration constraints"]
+        -->|segments|
+        C["**3. Captioner**
+        Qwen2.5-Omni-7B · vLLM
+        SCENE · PEOPLE · ACTIONS
+        DIALOGUE · SOUNDS · TEXT
+        OBJECTS · EMOTION · TEMPORAL"]
+    end
 
-    A["**1. ASR Transcriber**
-    Whisper API
-    extracts speech segments + timestamps"]
+    subgraph MEMORY ["🧠 Memory Layer"]
+        direction LR
+        D["**4. Consolidator**
+        Jaccard dedup > 0.85
+        Episode summaries
+        Entity resolution"]
+        -->|consolidated memories|
+        E["**5. EverMemOS Writer**
+        POST /api/v1/memories
+        3 concurrent workers
+        MongoDB · ES · Milvus"]
+    end
 
-    A -->|transcript| B
+    subgraph QUERY ["🔍 Query Agent"]
+        direction TB
+        F["**6. ReAct Agent**"]
+        F --- F1["search_episodes
+        BM25 + vector"]
+        F --- F2["search_profiles
+        entity / speaker"]
+        F --- F3["search_deep
+        LLM multi-hop"]
+        F --- F4["look_at_video
+        clip re-analyze"]
+        F --- F5["search_speech
+        Whisper BM25"]
+        F --- F6["get_timeline
+        chronological"]
+    end
 
-    B["**2. Temporal Segmenter**
-    ASR-guided temporal segmentation
-    ASR boundaries + ffmpeg scene/silence detection
-    Parallel clip extraction with min/max duration"]
-
-    B -->|segments| C
-
-    C["**3. Captioner** — Qwen2.5-Omni-7B via vLLM
-    9-field structured output:
-    SCENE · PEOPLE · ACTIONS · DIALOGUE
-    SOUNDS · TEXT · OBJECTS · EMOTION · TEMPORAL"]
-
+    V --> INGEST
     C -->|captions streamed| D
-
-    D["**4. Consolidator** — EverMemOS memory consolidation
-    Dedup: Jaccard similarity > 0.85 → merge
-    Episode summaries: related segments → narratives
-    Entity profiles: cross-episode resolution & merging"]
-
-    D -->|consolidated memories| E
-
-    E["**5. EverMemOS Writer**
-    POST /api/v1/memories
-    Concurrent writes · 3 workers · streaming
-    MongoDB + Elasticsearch + Milvus"]
-
-    E --> F
-
-    F["**6. Agentic Query Agent** — ReAct loop
-    🔍 search_episodes — hybrid BM25 + vector
-    👤 search_profiles — entity / speaker lookup
-    🔗 search_deep — LLM-guided multi-hop
-    🎞️ look_at_video — clip extract + re-analyze
-    🗣️ search_speech — Whisper transcript BM25
-    📅 get_timeline — chronological event listing"]
+    MEMORY --> QUERY
 ```
 
 ## Key Novelties
