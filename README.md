@@ -34,29 +34,33 @@ https://youtu.be/1Y4f9qc9w7g
 flowchart LR
     V([Video Input])
 
+    A["1. ASR Transcriber\nWhisper API\nextracts speech segments with timestamps"]
+    B["2. Temporal Segmenter\nASR-guided temporal segmentation\nASR boundaries + ffmpeg scene/silence detection\nParallel clip extraction with min/max duration constraints"]
+    C["3. Captioner\nQwen2.5-Omni-7B via vLLM\n9-field structured output:\nSCENE / PEOPLE / ACTIONS / DIALOGUE /\nSOUNDS / TEXT / OBJECTS / EMOTION / TEMPORAL"]
+    D["4. Consolidator\nEverMemOS-compatible memory consolidation\nJaccard similarity > 0.85 → merge\nRelated segments grouped into narrative episodes\nCross-episode entity resolution and merging"]
+    E["5. EverMemOS Writer\nPOST /api/v1/memories\nConcurrent writes (3 workers), streaming segment memories\nMongoDB + Elasticsearch + Milvus indexing"]
+    F["6. Agentic Query Agent\nReAct reasoning loop\nsearch_episodes — Fast hybrid retrieval (BM25 + vector)\nsearch_profiles — Entity / speaker profile lookup\nsearch_deep — LLM-guided multi-hop retrieval\nlook_at_video — Extract clip + re-analyze with Qwen2.5-Omni\nsearch_speech — BM25 search over Whisper speech transcripts\nget_timeline — Chronological event listing for a time range"]
+
     subgraph COL1 ["Ingestion"]
-        direction TB
-        A["1. ASR Transcriber\nWhisper API\nextracts speech segments with timestamps"]
-        B["2. Temporal Segmenter\nASR-guided temporal segmentation\nASR boundaries + ffmpeg scene/silence detection\nParallel clip extraction with min/max duration constraints"]
-        C["3. Captioner\nQwen2.5-Omni-7B via vLLM\n9-field structured output:\nSCENE / PEOPLE / ACTIONS / DIALOGUE /\nSOUNDS / TEXT / OBJECTS / EMOTION / TEMPORAL"]
-        A -->|transcript| B
-        B -->|segments| C
+        A
+        B
+        C
     end
 
     subgraph COL2 ["Memory"]
-        direction TB
-        D["4. Consolidator\nEverMemOS-compatible memory consolidation\nJaccard similarity > 0.85 → merge\nRelated segments grouped into narrative episodes\nCross-episode entity resolution and merging"]
-        E["5. EverMemOS Writer\nPOST /api/v1/memories\nConcurrent writes (3 workers), streaming segment memories\nMongoDB + Elasticsearch + Milvus indexing"]
-        D -->|consolidated memories| E
+        D
+        E
     end
 
     subgraph COL3 ["Query"]
-        direction TB
-        F["6. Agentic Query Agent\nReAct reasoning loop\nsearch_episodes — Fast hybrid retrieval (BM25 + vector)\nsearch_profiles — Entity / speaker profile lookup\nsearch_deep — LLM-guided multi-hop retrieval\nlook_at_video — Extract clip + re-analyze with Qwen2.5-Omni\nsearch_speech — BM25 search over Whisper speech transcripts\nget_timeline — Chronological event listing for a time range"]
+        F
     end
 
     V --> A
+    A -->|transcript| B
+    B -->|segments| C
     C -->|captions streamed| D
+    D -->|consolidated memories| E
     E --> F
 ````
 
