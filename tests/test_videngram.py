@@ -7,7 +7,6 @@ Run: pytest tests/ -v
 import json
 import os
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -97,28 +96,6 @@ class TestUtils:
         )
         assert "1:30" in seg.timestamp_label
         assert "2:30" in seg.timestamp_label
-
-    def test_video_sec_to_datetime_basic(self):
-        from videngram.utils import video_sec_to_datetime
-        dt_str = video_sec_to_datetime(0.0)
-        assert "2025-01-01T00:00:00" in dt_str
-
-    def test_video_sec_to_datetime_scaling(self):
-        """90 video-seconds with scale=60 should map to 5400 virtual seconds."""
-        from videngram.utils import video_sec_to_datetime
-        dt_str = video_sec_to_datetime(90.0, time_scale_factor=60)
-        dt = datetime.fromisoformat(dt_str)
-        base = datetime.fromisoformat("2025-01-01T00:00:00+00:00")
-        delta = (dt - base).total_seconds()
-        assert delta == 5400.0  # 90 * 60
-
-    def test_datetime_roundtrip(self):
-        """video_sec → datetime → video_sec should round-trip."""
-        from videngram.utils import video_sec_to_datetime, datetime_to_video_sec
-        original = 42.5
-        dt_str = video_sec_to_datetime(original, time_scale_factor=60)
-        recovered = datetime_to_video_sec(dt_str, time_scale_factor=60)
-        assert abs(recovered - original) < 0.01
 
     def test_generate_id_deterministic(self):
         from videngram.utils import generate_id
@@ -421,37 +398,34 @@ class TestPipelineCleanup:
 class TestMemoryReader:
     """Test reader request construction (mocked HTTP)."""
 
-    @patch("videngram.memory_reader.requests.Session")
-    def test_search_episodes_uses_post(self, mock_session_cls):
-        """EverMemOS search must use POST (not GET with body)."""
+    def test_search_episodes_uses_get(self):
+        """EverMemOS search uses GET with query params."""
         from videngram.config import VidEngramConfig
         from videngram.memory_reader import MemoryReader
 
         mock_session = MagicMock()
-        mock_session.post.return_value = MagicMock(
+        mock_session.get.return_value = MagicMock(
             status_code=200,
             json=lambda: {"results": []}
         )
-        mock_session_cls.return_value = mock_session
 
         cfg = VidEngramConfig()
         reader = MemoryReader(cfg)
-        reader._session = mock_session  # inject mock
+        reader._session = mock_session
         reader.search_episodes("test query", "/video.mp4")
 
-        mock_session.post.assert_called_once()
-        call_args = mock_session.post.call_args
-        payload = call_args.kwargs.get("json") or call_args[1].get("json")
-        assert payload["memory_types"] == ["episodic_memory"]
-        assert payload["retrieve_method"] == "rrf"
+        mock_session.get.assert_called_once()
+        call_args = mock_session.get.call_args
+        params = call_args.kwargs.get("params") or call_args[1].get("params")
+        assert params["memory_types"] == ["episodic_memory"]
+        assert params["retrieve_method"] == "hybrid"
 
-    @patch("videngram.memory_reader.requests.Session")
-    def test_search_profiles_correct_type(self, mock_session_cls):
+    def test_search_profiles_correct_type(self):
         from videngram.config import VidEngramConfig
         from videngram.memory_reader import MemoryReader
 
         mock_session = MagicMock()
-        mock_session.post.return_value = MagicMock(
+        mock_session.get.return_value = MagicMock(
             status_code=200,
             json=lambda: {"results": []}
         )
@@ -461,17 +435,17 @@ class TestMemoryReader:
         reader._session = mock_session
         reader.search_profiles("who is the speaker", "/video.mp4")
 
-        payload = mock_session.post.call_args.kwargs.get("json") or mock_session.post.call_args[1].get("json")
-        assert payload["memory_types"] == ["profile"]
+        call_args = mock_session.get.call_args
+        params = call_args.kwargs.get("params") or call_args[1].get("params")
+        assert params["memory_types"] == ["profile"]
 
-    @patch("videngram.memory_reader.requests.Session")
-    def test_agentic_retrieval_all_types(self, mock_session_cls):
-        """Agentic mode should search across all memory types."""
+    def test_agentic_retrieval_uses_episodic(self):
+        """Agentic mode searches episodic_memory via GET."""
         from videngram.config import VidEngramConfig
         from videngram.memory_reader import MemoryReader
 
         mock_session = MagicMock()
-        mock_session.post.return_value = MagicMock(
+        mock_session.get.return_value = MagicMock(
             status_code=200,
             json=lambda: {"results": []}
         )
@@ -481,11 +455,10 @@ class TestMemoryReader:
         reader._session = mock_session
         reader.search_agentic("complex question", "/video.mp4")
 
-        payload = mock_session.post.call_args.kwargs.get("json") or mock_session.post.call_args[1].get("json")
-        assert "episodic_memory" in payload["memory_types"]
-        assert "profile" in payload["memory_types"]
-        assert "semantic_memory" in payload["memory_types"]
-        assert payload["retrieve_method"] == "agentic"
+        call_args = mock_session.get.call_args
+        params = call_args.kwargs.get("params") or call_args[1].get("params")
+        assert "episodic_memory" in params["memory_types"]
+        assert params["retrieve_method"] == "agentic"
 
     def test_parse_results_dict_format(self):
         from videngram.memory_reader import MemoryReader

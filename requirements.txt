@@ -17,7 +17,6 @@ matplotlib>=3.7.0        # t-SNE scatter plot output (visualizer)
 
 # Backend server
 fastapi>=0.110.0         # REST API server
-starlette>=0.27.0        # CORS middleware (backend/server.py)
 uvicorn[standard]>=0.27.0  # ASGI server
 python-multipart>=0.0.9  # File upload support for FastAPI
 

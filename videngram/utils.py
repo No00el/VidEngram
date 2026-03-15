@@ -179,3 +179,24 @@ def _fmt_time(seconds: float) -> str:
 def fmt_minutes(seconds: float) -> str:
     """Format seconds as M:SS or H:MM:SS timecode (e.g. '1:30', '10:05')."""
     return _fmt_time(seconds)
+
+
+# ── HTTP Session ─────────────────────────────────────────────────────────
+
+def create_http_session(retries: int = 3, backoff: float = 0.5):
+    """Create an HTTP session with retry logic and connection pooling."""
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    session = requests.Session()
+    retry = Retry(
+        total=retries,
+        backoff_factor=backoff,
+        status_forcelist=[502, 503, 504],
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session

@@ -2,8 +2,6 @@
 # Launches EverMemOS backing services (MongoDB, Elasticsearch, Milvus, Redis)
 # EverMemOS API server and vLLM-Omni run natively (require GPU access)
 
-version: "3.8"
-
 services:
   # ── MongoDB ──────────────────────────────────────────
   mongodb:

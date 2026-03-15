@@ -4,10 +4,7 @@
 # ─── Model Serving ───────────────────────────────────────────────
 model:
   # Qwen2.5-Omni-7B served via vLLM-Omni
-  name: "Qwen/Qwen2.5-Omni-7B"  # API KEY
-  base_url: "http://localhost:8091/v1"  # API KEY
-  api_key: "EMPTY"  # API KEY
-  # Captioning parameters
+  name: "Qwen/Qwen2.5-Omni-7B"  base_url: "http://localhost:8091/v1"  api_key: "EMPTY"  # Captioning parameters
   caption:
     max_tokens: 1024
     temperature: 0.1
@@ -53,8 +50,7 @@ consolidation:
 
 # ─── EverMemOS Integration ───────────────────────────────────────
 evermemos:
-  base_url: "http://localhost:8001"  # API KEY
-  api_version: "v1"
+  base_url: "http://localhost:8001"  api_version: "v1"
   # Memory ingestion settings
   ingest:
     sender: "video_observer"

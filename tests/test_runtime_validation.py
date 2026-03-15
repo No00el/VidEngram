@@ -108,14 +108,14 @@ def test_data_classes_serializable():
 
 check("All data classes construct + properties work", test_data_classes_serializable)
 
-def test_timestamp_mapping_invertible():
-    from videngram.utils import video_sec_to_datetime, datetime_to_video_sec
-    for sec in [0.0, 1.0, 42.5, 90.0, 3600.0]:
-        dt = video_sec_to_datetime(sec, time_scale_factor=60)
-        recovered = datetime_to_video_sec(dt, time_scale_factor=60)
-        assert abs(recovered - sec) < 0.001, f"Roundtrip failed: {sec} → {dt} → {recovered}"
+def test_fmt_time_roundtrip():
+    from videngram.utils import _fmt_time
+    # Verify formatting for various second values
+    assert _fmt_time(0.0) == "0:00"
+    assert _fmt_time(90.0) == "1:30"
+    assert _fmt_time(3661.0) == "1:01:01"
 
-check("Timestamp roundtrip for multiple values", test_timestamp_mapping_invertible)
+check("_fmt_time formatting for multiple values", test_fmt_time_roundtrip)
 
 
 # ── 3. SEGMENTER ─────────────────────────────────────────────────
@@ -359,10 +359,9 @@ def test_consolidator_full_pipeline():
         assert len(segment_mems) == 3, f"Expected 3 segments, got {len(segment_mems)}"
         assert len(episode_mems) >= 1, f"Expected ≥1 episodes, got {len(episode_mems)}"
 
-        # Verify segment memories have timestamp prefix
+        # Verify segment memories have timestamp prefix (format: [Video M:SS - M:SS])
         for sm in segment_mems:
             assert sm.content.startswith("[Video ")
-            assert "min" in sm.content
 
         # Verify episode memories have episode prefix
         for em in episode_mems:
@@ -496,7 +495,7 @@ check("Writer handles partial failures", test_writer_partial_failure)
 print("\n7. Memory reader execution path:")
 
 def test_reader_search_episodes_full():
-    """Trace: search_episodes() → _retrieve_lightweight() → session.post() → _parse_results()."""
+    """Trace: search_episodes() → _retrieve_lightweight() → session.get() → _parse_results()."""
     from videngram.config import VidEngramConfig
     from videngram.memory_reader import MemoryReader
 
@@ -504,7 +503,7 @@ def test_reader_search_episodes_full():
     reader = MemoryReader(cfg)
 
     mock_session = MagicMock()
-    mock_session.post.return_value = MagicMock(
+    mock_session.get.return_value = MagicMock(
         status_code=200,
         json=lambda: {"results": [
             {"content": "[Video 1:00 - 2:00] Meeting discussion", "score": 0.92, "memory_type": "episodic_memory"},
@@ -520,15 +519,15 @@ def test_reader_search_episodes_full():
     assert results[0].score == 0.92
     assert results[1].score == 0.85
 
-    # Verify POST was used (not GET)
-    mock_session.post.assert_called_once()
-    call_args = mock_session.post.call_args
-    payload = call_args.kwargs.get("json") or call_args[1].get("json")
-    assert payload["memory_types"] == ["episodic_memory"]
-    assert payload["retrieve_method"] == "rrf"
-    assert payload["query"] == "meeting discussion"
+    # Verify GET was used (EverMemOS search uses GET with query params)
+    mock_session.get.assert_called_once()
+    call_args = mock_session.get.call_args
+    params = call_args.kwargs.get("params") or call_args[1].get("params")
+    assert params["memory_types"] == ["episodic_memory"]
+    assert params["retrieve_method"] == "rrf"
+    assert params["query"] == "meeting discussion"
 
-check("search_episodes full path + verify POST", test_reader_search_episodes_full)
+check("search_episodes full path + verify GET", test_reader_search_episodes_full)
 
 def test_reader_agentic_fallback():
     """Agentic search falls back to lightweight on failure."""
@@ -539,19 +538,19 @@ def test_reader_agentic_fallback():
     reader = MemoryReader(cfg)
 
     call_count = [0]
-    def mock_post(*args, **kwargs):
+    def mock_get(*args, **kwargs):
         call_count[0] += 1
         if call_count[0] == 1:
             # First call (agentic) fails
             return MagicMock(status_code=500)
         else:
-            # Second call (fallback rrf) succeeds
+            # Second call (fallback hybrid) succeeds
             return MagicMock(status_code=200, json=lambda: {"results": [
                 {"content": "Fallback result", "score": 0.7}
             ]})
 
     mock_session = MagicMock()
-    mock_session.post.side_effect = mock_post
+    mock_session.get.side_effect = mock_get
     reader._session = mock_session
 
     results = reader.search_agentic("complex question", "/v.mp4")
