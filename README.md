@@ -233,7 +233,7 @@ If you use VidEngram, please cite:
 
 ```bibtex
 @misc{videngram2026,
-  author={Zinuo Cheng and Yueqian Lin and Yiran Chen and Hai "Helen" Li},
+  author={Zinuo Cheng and Yueqian Lin and Hai "Helen" Li and Yiran Chen},
   title={VidEngram: Structured Video Memory Powered by EverMemOS},
   year={2026},
   note={Memory Genesis Competition 2026, Track 1: Agent + Memory}
@@ -242,7 +242,7 @@ If you use VidEngram, please cite:
 
 Also cite the foundational works:
 - **HippoMM**: Lin et al., "HippoMM: Hippocampal-inspired Multimodal Memory for Long Audiovisual Event Understanding", arXiv:2504.10739
-- **EverMemOS**: EverMind AI, https://github.com/SuanAI/EverMemOS
+- **EverMemOS**: EverMind AI, https://github.com/EverMind-AI/EverMemOS
 - **Qwen2.5-Omni**: Qwen Team, Alibaba Cloud
 
 ## License
