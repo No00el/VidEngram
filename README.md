@@ -144,25 +144,6 @@ python -m demo.cli chat   path/to/video.mp4
 
 For full setup details including `.env` configuration, EverMemOS setup, GPU layout tips, and troubleshooting, see **[E2E_SETUP.md](E2E_SETUP.md)**.
 
-## Python API
-
-```python
-from videngram import VidEngramPipeline
-
-pipeline = VidEngramPipeline()
-
-# Ingest
-stats = pipeline.ingest("lecture.mp4")
-print(f"Processed {stats['segments']} segments, wrote {stats['memories_total']} memories")
-# e.g. memories_segments / memories_episodes / memories_profiles / memories_speech
-
-# Query
-response = pipeline.query("What examples did the speaker use?", "lecture.mp4")
-print(response.answer)                        # includes [Video M:SS - N:SS] citations
-print(f"Agent used {len(response.actions)} tool calls")
-print(f"Grounded in {len(response.grounded_clips)} video clips")
-```
-
 ## Project Structure
 
 ```
