@@ -31,35 +31,54 @@ https://youtu.be/1Y4f9qc9w7g
 
 
 ```mermaid
-flowchart TD
-    VID(["📹 Video Input\n(any duration)"])
+flowchart LR
+    VID([🎬 Video Input])
 
-    subgraph PIPE ["Video Understanding Pipeline"]
-        direction TD
-        A["ASR Transcriber\n─────────────────\nWhisper API\nspeech → timestamped transcript"]
-        B["Temporal Segmenter\n─────────────────\nASR boundaries + ffmpeg\nscene & silence detection"]
-        C["Captioner\n─────────────────\nQwen2.5-Omni-7B · vLLM\n9-field structured output"]
-        D["Consolidator\n─────────────────\nJaccard dedup · episode grouping\ncross-episode entity resolution"]
-        E["EverMemOS Writer\n─────────────────\nPOST /api/v1/memories\nMongoDB + ES + Milvus · 3 workers"]
-
+    subgraph CREATE["🧠  Create Memory"]
+        direction TB
+        A["① ASR Transcriber
+──────────────
+Whisper API
+speech → transcript + timestamps"]
+        B["② Temporal Segmenter
+──────────────
+ASR boundary + ffmpeg
+scene & silence detection"]
+        C["③ Captioner
+──────────────
+Qwen2.5-Omni-7B · vLLM
+9-field structured output"]
         A -->|transcript| B
         B -->|segments| C
-        C -->|captions stream| D
-        D -->|consolidated memories| E
     end
 
-    subgraph AGENT ["Agentic Query Agent  (ReAct Loop)"]
-        direction LR
-        F1["search_episodes\nhybrid BM25+vector"]
-        F2["search_profiles\nentity lookup"]
-        F3["search_deep\nmulti-hop LLM"]
-        F4["look_at_video\nre-analyze clip"]
-        F5["search_speech\nWhisper BM25"]
-        F6["get_timeline\nchronological"]
+    subgraph INGEST["💾  Ingest Memory"]
+        direction TB
+        D["④ Consolidator
+──────────────
+Jaccard dedup · episode grouping
+cross-episode entity resolution"]
+        E["⑤ EverMemOS Writer
+──────────────
+POST /api/v1/memories
+MongoDB + ES + Milvus"]
+        D -->|consolidated| E
     end
 
-    VID --> A
-    E -->|retrieval index| AGENT
+    subgraph RETRIEVE["🔍  Retrieve Memory"]
+        direction TB
+        F["⑥ Agentic Query Agent
+──────────────
+ReAct reasoning loop"]
+        G["search_episodes · search_profiles
+search_deep · look_at_video
+search_speech · get_timeline"]
+        F --> G
+    end
+
+    VID --> CREATE
+    CREATE -->|captions stream| INGEST
+    INGEST -->|retrieval index| RETRIEVE
 ```
 
 
