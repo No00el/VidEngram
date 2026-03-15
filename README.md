@@ -81,10 +81,6 @@ Video Input
 
 4. **Context Grounding** — When memory alone isn't enough, the agent extracts the specific video clip and re-analyzes it with Qwen2.5-Omni, verifying and enriching its answer with fresh multimodal evidence.
 
-5. **Temporal Reasoning via Virtual Timestamps** — Video seconds are mapped to virtual calendar datetimes so EverMemOS's temporal reasoning engine can understand "before/after/during" relationships in video events.
-
-6. **Remote SSH Execution** — ffmpeg segmentation, Whisper transcription, and Qwen captioning can all run on a remote GPU server. Only metadata and captions are transferred back, keeping bandwidth usage low.
-
 ## Quick Start
 
 > For the complete step-by-step setup guide, see [E2E_SETUP.md](E2E_SETUP.md).
