@@ -117,7 +117,7 @@ Download to a local directory on your GPU server:
 
 VidEngram splits compute across two machines:
 
-```
+```mermaid
 ┌─────────────────────────────┐     ┌──────────────────────────────────────┐
 │       Local machine         │     │          Remote GPU server           │
 │                             │     │                                      │
