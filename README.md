@@ -29,55 +29,52 @@ https://youtu.be/1Y4f9qc9w7g
 
 ## Architecture
 
-```
-Video Input
-    │
-    ▼
-┌──────────────────────────┐
-│  1. ASR Transcriber      │  Whisper API — extracts speech segments with timestamps
-└──────────┬───────────────┘
-           │ transcript
-           ▼
-┌──────────────────────────┐
-│  2. Temporal Segmenter   │  ASR-guided temporal segmentation
-│     (ASR-guided +        │  ASR boundaries + ffmpeg scene/silence detection
-│      scene + silence)    │  Parallel clip extraction with min/max duration constraints
-└──────────┬───────────────┘
-           │ segments
-           ▼
-┌──────────────────────────┐
-│  3. Captioner            │  Qwen2.5-Omni-7B via vLLM
-│     (video+audio→text)   │  9-field structured output:
-│                          │  SCENE / PEOPLE / ACTIONS / DIALOGUE /
-│                          │  SOUNDS / TEXT / OBJECTS / EMOTION / TEMPORAL
-└──────────┬───────────────┘
-           │ captions (streamed)
-           ▼
-┌──────────────────────────┐
-│  4. Consolidator         │  EverMemOS-compatible memory consolidation
-│     - Dedup filtering    │  Jaccard similarity > 0.85 → merge
-│     - Episode summaries  │  Related segments grouped into narrative episodes
-│     - Entity profiles    │  Cross-episode entity resolution and merging
-└──────────┬───────────────┘
-           │ consolidated memories
-           ▼
-┌──────────────────────────┐
-│  5. EverMemOS Writer     │  POST /api/v1/memories
-│     (structured storage) │  Concurrent writes (3 workers), streaming segment memories
-│                          │  MongoDB + Elasticsearch + Milvus indexing
-└──────────┬───────────────┘
-           │
-           ▼
-┌──────────────────────────┐
-│  6. Agentic Query Agent  │  ReAct reasoning loop
-│     ┌─ search_episodes   │  Fast hybrid retrieval (BM25 + vector)
-│     ├─ search_profiles   │  Entity / speaker profile lookup
-│     ├─ search_deep       │  LLM-guided multi-hop retrieval
-│     ├─ look_at_video     │  Extract clip + re-analyze with Qwen2.5-Omni
-│     ├─ search_speech     │  BM25 search over Whisper speech transcripts
-│     └─ get_timeline      │  Chronological event listing for a time range
-└──────────────────────────┘
-```
+flowchart TD
+    V([🎬 Video Input])
+
+    V --> A
+
+    A["**1. ASR Transcriber**
+    Whisper API
+    extracts speech segments + timestamps"]
+
+    A -->|transcript| B
+
+    B["**2. Temporal Segmenter**
+    ASR-guided temporal segmentation
+    ASR boundaries + ffmpeg scene/silence detection
+    Parallel clip extraction with min/max duration"]
+
+    B -->|segments| C
+
+    C["**3. Captioner** — Qwen2.5-Omni-7B via vLLM
+    9-field structured output:
+    SCENE · PEOPLE · ACTIONS · DIALOGUE
+    SOUNDS · TEXT · OBJECTS · EMOTION · TEMPORAL"]
+
+    C -->|captions streamed| D
+
+    D["**4. Consolidator** — EverMemOS memory consolidation
+    Dedup: Jaccard similarity > 0.85 → merge
+    Episode summaries: related segments → narratives
+    Entity profiles: cross-episode resolution & merging"]
+
+    D -->|consolidated memories| E
+
+    E["**5. EverMemOS Writer**
+    POST /api/v1/memories
+    Concurrent writes · 3 workers · streaming
+    MongoDB + Elasticsearch + Milvus"]
+
+    E --> F
+
+    F["**6. Agentic Query Agent** — ReAct loop
+    🔍 search_episodes — hybrid BM25 + vector
+    👤 search_profiles — entity / speaker lookup
+    🔗 search_deep — LLM-guided multi-hop
+    🎞️ look_at_video — clip extract + re-analyze
+    🗣️ search_speech — Whisper transcript BM25
+    📅 get_timeline — chronological event listing"]
 
 ## Key Novelties
 
