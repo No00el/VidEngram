@@ -29,46 +29,37 @@ https://youtu.be/1Y4f9qc9w7g
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    V([🎬 Video Input])
 
-    subgraph INGEST ["⚙️ Ingestion Pipeline"]
-        direction LR
-        A["**1. ASR Transcriber**\nWhisper API\nspeech segments + timestamps"]
-        B["**2. Temporal Segmenter**\nASR + ffmpeg scene/silence\nmin/max duration constraints"]
-        C["**3. Captioner**\nQwen2.5-Omni-7B · vLLM\nSCENE · PEOPLE · ACTIONS\nDIALOGUE · SOUNDS · TEXT\nOBJECTS · EMOTION · TEMPORAL"]
+````mermaid
+flowchart LR
+    V([Video Input])
+
+    subgraph COL1 ["Ingestion"]
+        direction TB
+        A["1. ASR Transcriber\nWhisper API\nextracts speech segments with timestamps"]
+        B["2. Temporal Segmenter\nASR-guided temporal segmentation\nASR boundaries + ffmpeg scene/silence detection\nParallel clip extraction with min/max duration constraints"]
+        C["3. Captioner\nQwen2.5-Omni-7B via vLLM\n9-field structured output:\nSCENE / PEOPLE / ACTIONS / DIALOGUE /\nSOUNDS / TEXT / OBJECTS / EMOTION / TEMPORAL"]
         A -->|transcript| B
         B -->|segments| C
     end
 
-    subgraph MEMORY ["🧠 Memory Layer"]
-        direction LR
-        D["**4. Consolidator**\nJaccard dedup > 0.85\nEpisode summaries\nEntity resolution"]
-        E["**5. EverMemOS Writer**\nPOST /api/v1/memories\n3 concurrent workers\nMongoDB · ES · Milvus"]
+    subgraph COL2 ["Memory"]
+        direction TB
+        D["4. Consolidator\nEverMemOS-compatible memory consolidation\nJaccard similarity > 0.85 → merge\nRelated segments grouped into narrative episodes\nCross-episode entity resolution and merging"]
+        E["5. EverMemOS Writer\nPOST /api/v1/memories\nConcurrent writes (3 workers), streaming segment memories\nMongoDB + Elasticsearch + Milvus indexing"]
         D -->|consolidated memories| E
     end
 
-    subgraph QUERY ["🔍 Query Agent"]
-        F["**6. ReAct Agent**"]
-        F1["search_episodes\nBM25 + vector"]
-        F2["search_profiles\nentity / speaker"]
-        F3["search_deep\nLLM multi-hop"]
-        F4["look_at_video\nclip re-analyze"]
-        F5["search_speech\nWhisper BM25"]
-        F6["get_timeline\nchronological"]
-        F --- F1
-        F --- F2
-        F --- F3
-        F --- F4
-        F --- F5
-        F --- F6
+    subgraph COL3 ["Query"]
+        direction TB
+        F["6. Agentic Query Agent\nReAct reasoning loop\nsearch_episodes — Fast hybrid retrieval (BM25 + vector)\nsearch_profiles — Entity / speaker profile lookup\nsearch_deep — LLM-guided multi-hop retrieval\nlook_at_video — Extract clip + re-analyze with Qwen2.5-Omni\nsearch_speech — BM25 search over Whisper speech transcripts\nget_timeline — Chronological event listing for a time range"]
     end
 
-    V --> INGEST
+    V --> A
     C -->|captions streamed| D
-    MEMORY --> QUERY
-```
+    E --> F
+````
+
 
 ## Key Novelties
 
