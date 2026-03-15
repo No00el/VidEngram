@@ -1,0 +1,2726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VidEngram Demo</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    header {
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      padding: 14px 24px;
+      font-size: 1em;
+      font-weight: 600;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      letter-spacing: -0.02em;
+      color: #1d1d1f;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .badge { background: #007aff; color: #fff; font-size: 0.7em; padding: 3px 10px; border-radius: 9999px; font-weight: 500; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .header-logo-link { margin-left: auto; display: flex; align-items: center; text-decoration: none; opacity: 0.7; transition: opacity 0.2s ease; }
+    .header-logo-link:hover { opacity: 1; }
+    .duke-cei-logo { height: 28px; filter: invert(1) brightness(0.2); }
+
+    .powered-by { margin-left: 0; display: flex; align-items: center; gap: 7px; font-size: 0.78em; font-weight: 500; color: #86868b; text-decoration: none; padding: 4px 12px 4px 6px; border-radius: 9999px; border: 1px solid #e8e8ed; background: rgba(255, 255, 255, 0.6); transition: all 0.2s ease; }
+    .powered-by:hover { color: #1d1d1f; border-color: #d1d1d6; background: #fff; }
+    .powered-by-logo { width: 22px; height: 22px; border-radius: 50%; }
+
+    .main { display: flex; gap: 16px; padding: 16px; height: calc(100vh - 49px); flex: none; overflow: hidden; }
+    .left { flex: 6; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+    #upload-phase { flex: 1; background: #fff; border: 1px solid rgba(0,0,0,0.06); border-radius: 16px; padding: 32px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; min-height: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); animation: fadeIn 0.4s ease; }
+    .upload-title { font-size: 1.05em; font-weight: 600; color: #1d1d1f; letter-spacing: -0.01em; }
+
+    #drop-zone { border: 2px dashed #d2d2d7; border-radius: 16px; padding: 48px 60px; text-align: center; cursor: pointer; transition: all 0.3s ease; width: 100%; user-select: none; }
+    #drop-zone:hover, #drop-zone.drag-over { border-color: #007aff; background: rgba(0,122,255,0.03); transform: scale(1.005); box-shadow: 0 0 0 4px rgba(0,122,255,0.06); }
+    .drop-icon { font-size: 2.8em; margin-bottom: 12px; }
+    .drop-text { font-size: 1em; font-weight: 600; color: #1d1d1f; margin-bottom: 6px; }
+    .drop-hint { font-size: 0.82em; color: #86868b; }
+
+    #upload-progress { display: none; width: 100%; }
+    #upload-error { display: none; color: #ff3b30; font-size: 0.85em; text-align: center; }
+
+    #ingest-phase { flex: 1; background: #fff; border: 1px solid rgba(0,0,0,0.06); border-radius: 16px; padding: 20px 22px; display: none; flex-direction: column; gap: 10px; min-height: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); animation: fadeIn 0.4s ease; }
+
+    .step-label { font-size: 0.92em; font-weight: 600; color: #1d1d1f; display: flex; align-items: center; gap: 8px; }
+    .step-label::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #007aff; animation: pulse-dot 1.2s ease infinite; flex-shrink: 0; }
+
+    .progress-track { background: #e8e8ed; border-radius: 9999px; height: 6px; overflow: hidden; flex-shrink: 0; }
+    .progress-fill { background: linear-gradient(90deg, #007aff, #5ac8fa, #007aff); background-size: 200% 100%; animation: shimmer 2s linear infinite; height: 100%; width: 0%; transition: width 0.6s ease; border-radius: 9999px; }
+    .progress-pct { font-size: 0.75em; color: #86868b; text-align: right; margin-top: -4px; flex-shrink: 0; }
+
+    .ingest-log { flex: 1; background: #fafafa; border: 1px solid #e8e8ed; border-radius: 10px; padding: 12px 14px; font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 0.7em; line-height: 1.6; color: #aeaeb2; overflow-y: auto; min-height: 0; max-height: 200px; }
+    .log-line { white-space: pre-wrap; word-break: break-all; padding: 2px 0; }
+    .log-line.step { color: #007aff; font-weight: 600; margin-top: 4px; }
+    .log-line.ok { color: #34c759; }
+    .log-line.warn { color: #ff9500; }
+    .log-line.err { color: #ff3b30; }
+
+    .sub-progress-ui { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px 0; }
+    .sub-progress-text { font-size: 0.88em; font-weight: 600; color: #48484a; letter-spacing: -0.01em; }
+
+    #video-phase { flex: 1; display: none; flex-direction: column; min-height: 0; gap: 10px; }
+    .video-wrapper { position: relative; flex: 1; min-height: 0; border-radius: 16px; overflow: hidden; background: #000; box-shadow: 0 4px 24px rgba(0,0,0,0.15); }
+    video { width: 100%; height: 100%; display: block; }
+
+    #subtitle-overlay { position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); max-width: 88%; background: rgba(0,0,0,0.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: #fff; font-size: 1.05em; font-weight: 500; line-height: 1.5; padding: 6px 18px 7px; border-radius: 8px; text-align: center; pointer-events: none; white-space: pre-line; word-break: break-word; text-shadow: 0 1px 3px rgba(0,0,0,0.5); opacity: 1; transition: opacity 0.3s ease; }
+    #subtitle-overlay.hidden { opacity: 0; }
+
+    .transcript-line { padding: 4px 0; font-size: 0.87em; border-bottom: 1px solid #f0f0f0; line-height: 1.5; }
+    .transcript-ts { font-size: 0.77em; color: #86868b; font-family: 'SF Mono', 'Menlo', monospace; margin-right: 6px; }
+
+    .controls { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+
+    button { padding: 8px 20px; border: none; border-radius: 10px; cursor: pointer; font-size: 0.87em; font-weight: 500; transition: all 0.2s ease; letter-spacing: -0.01em; }
+    button:active:not(:disabled) { transform: scale(0.97); }
+
+    .btn-primary { background: #007aff; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #0066d6; box-shadow: 0 2px 8px rgba(0,122,255,0.25); }
+    .btn-primary:disabled { background: #e8e8ed; color: #aeaeb2; cursor: default; }
+
+    .btn-skip { background: #e8e8ed; color: #636366; font-size: 0.82em; }
+    .btn-skip:hover:not(:disabled) { background: #d1d1d6; color: #1d1d1f; }
+    .btn-skip:disabled { opacity: 0.4; cursor: default; }
+
+    .btn-live { background: #34c759; color: #fff; font-size: 0.82em; position: relative; overflow: hidden; }
+    .btn-live:hover { background: #2db84d; box-shadow: 0 2px 8px rgba(52,199,89,0.3); }
+    .btn-live::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #fff; margin-right: 5px; animation: pulse-dot 1.5s ease infinite; }
+    .btn-live.off { background: #e8e8ed; color: #636366; }
+    .btn-live.off:hover { background: #d1d1d6; color: #1d1d1f; }
+    .btn-live.off::before { background: #aeaeb2; animation: none; }
+
+    #status { font-size: 0.82em; color: #86868b; margin-left: 4px; }
+
+    .right { flex: 4; display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow: hidden; }
+
+    .panel { flex: 1; background: #fff; border: 1px solid rgba(0,0,0,0.06); border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04); transition: box-shadow 0.3s ease; }
+    .panel:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+
+    .panel-title { font-size: 0.72em; font-weight: 600; color: #86868b; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; margin-bottom: 10px; flex-shrink: 0; }
+    .panel-body { flex: 1; font-size: 0.95em; line-height: 1.8; overflow-y: auto; white-space: pre-wrap; word-break: break-word; color: #1d1d1f; }
+    .panel-body.dim { color: #aeaeb2; font-style: italic; }
+
+    #scene-connections { flex-shrink: 0; margin-top: 4px; }
+    .connections-divider { border: none; border-top: 1px solid #f0f0f0; margin: 12px 0 10px; }
+    .connections-label { color: #ff9500; font-weight: 600; font-size: 0.82em; }
+    #connections-text { font-size: 0.92em; line-height: 1.75; color: #48484a; white-space: pre-wrap; word-break: break-word; }
+    .panel-ts { font-size: 0.72em; color: #aeaeb2; margin-top: 8px; flex-shrink: 0; }
+
+    #ingest-phase.compact { flex: 0; min-height: auto; }
+
+    #ingest-feed { flex: 1; background: #fff; border: 1px solid rgba(0,0,0,0.06); border-radius: 16px; padding: 18px 20px; display: none; flex-direction: column; overflow: hidden; min-height: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    #ingest-feed-title { font-size: 0.72em; font-weight: 600; color: #86868b; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; margin-bottom: 10px; flex-shrink: 0; }
+    #ingest-feed-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+
+    .caption-card { background: #fafafa; border: 1px solid #e8e8ed; border-radius: 12px; padding: 14px 16px; flex-shrink: 0; transition: all 0.2s ease; animation: fadeIn 0.35s ease; }
+    .caption-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); border-color: #d1d1d6; }
+    .caption-card-ts { font-size: 0.7em; color: #007aff; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .caption-card-ts::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #34c759; }
+    .caption-card-body { font-size: 0.85em; color: #48484a; white-space: pre-wrap; word-break: break-word; line-height: 1.65; }
+
+    .caption-card.waiting { border-color: #e8e8ed; border-style: solid; background: #fff; }
+    .caption-card.waiting .caption-card-body { color: #aeaeb2; font-style: italic; display: flex; align-items: center; gap: 8px; }
+    .caption-card.waiting .caption-card-body::before { content: ''; display: inline-block; width: 14px; height: 14px; border: 2px solid #e8e8ed; border-top-color: #007aff; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+    .caption-card.waiting .caption-card-ts::before { background: #ff9500; animation: pulse-dot 1s ease infinite; }
+
+    .caption-section { margin-bottom: 8px; line-height: 1.65; }
+    .caption-section:last-child { margin-bottom: 0; }
+    .caption-section-label { display: inline-block; font-size: 0.7em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #fff; background: #007aff; padding: 1px 7px; border-radius: 4px; margin-right: 6px; vertical-align: middle; }
+    .caption-section-label.people-label    { background: #af52de; }
+    .caption-section-label.actions-label   { background: #ff6b35; }
+    .caption-section-label.dialogue-label { background: #5856d6; }
+    .caption-section-label.sounds-label   { background: #34c759; }
+    .caption-section-label.text-label     { background: #ff9500; }
+    .caption-section-label.objects-label  { background: #32ade6; }
+    .caption-section-label.emotion-label  { background: #ff2d55; }
+    .caption-section-label.temporal-label { background: #a2845e; }
+
+    .memory-created-label { font-size: 0.68em; color: #34c759; margin-top: 8px; display: flex; align-items: center; gap: 4px; font-weight: 500; }
+    .memory-created-label::before { content: '\2713'; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #34c759; color: #fff; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+
+    .caption-card.active { border-color: rgba(0, 122, 255, 0.45); background: rgba(0, 122, 255, 0.04); box-shadow: inset 3px 0 0 #007aff, 0 4px 16px rgba(0, 122, 255, 0.10); transform: translateY(-1px); }
+    .caption-card.active .caption-card-ts { color: #007aff; }
+    .caption-card.active .caption-card-ts::before { background: #007aff; animation: none; }
+
+    #right-tabs { display: flex; gap: 4px; flex-shrink: 0; background: #e8e8ed; border-radius: 10px; padding: 2px; }
+    .tab-btn { padding: 6px 18px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.82em; font-weight: 500; background: transparent; color: #636366; transition: all 0.2s ease; flex: 1; text-align: center; }
+    .tab-btn.active { background: #fff; color: #1d1d1f; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .tab-btn:hover:not(:disabled):not(.active) { color: #1d1d1f; }
+    .tab-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #scene-tab-content { display: flex; flex: 1; flex-direction: column; gap: 12px; min-height: 0; }
+
+    #qa-tab-content { flex: 1; display: none; flex-direction: column; gap: 10px; min-height: 0; background: #fff; border: 1px solid rgba(0,0,0,0.06); border-radius: 16px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+
+    #video-controls { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+    .icon-btn { background: #e8e8ed; color: #1d1d1f; border: none; border-radius: 8px; padding: 0; width: 34px; height: 34px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.15s ease; }
+    .icon-btn:hover { background: #d1d1d6; }
+    .icon-btn svg { width: 16px; height: 16px; fill: currentColor; }
+    .icon-btn.muted { background: #f5f5f7; color: #aeaeb2; }
+
+    #video-progress-bar { flex: 1; height: 6px; background: #e8e8ed; border-radius: 9999px; position: relative; cursor: pointer; overflow: visible; }
+    #video-progress-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #007aff; border-radius: 9999px; pointer-events: none; }
+    .qa-highlight { position: absolute; top: -4px; height: 14px; background: rgba(255,149,0,0.3); border: 1px solid rgba(255,149,0,0.5); border-radius: 3px; pointer-events: none; }
+    #video-time { font-size: 0.75em; color: #86868b; font-family: 'SF Mono', 'Menlo', monospace; flex-shrink: 0; white-space: nowrap; }
+
+    #qa-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+    .qa-msg-question { align-self: flex-end; background: #007aff; color: #fff; border-radius: 18px 18px 4px 18px; padding: 10px 16px; max-width: 82%; font-size: 0.9em; line-height: 1.5; word-break: break-word; }
+    .qa-msg-answer { align-self: flex-start; background: #f0f0f0; border: none; border-radius: 4px 18px 18px 18px; padding: 12px 16px; max-width: 96%; font-size: 0.9em; line-height: 1.65; word-break: break-word; color: #1d1d1f; }
+
+    .qa-steps { margin-bottom: 6px; font-size: 0.78em; color: #86868b; }
+    .qa-steps-toggle { cursor: pointer; user-select: none; color: #86868b; font-size: 0.78em; margin-bottom: 4px; display: none; }
+    .qa-steps-toggle:hover { color: #636366; }
+    .qa-steps-list { display: flex; flex-direction: column; gap: 2px; }
+    .qa-step-item { font-size: 0.78em; color: #86868b; font-style: italic; padding: 1px 0; }
+    .qa-step-item::before { content: '\203A '; }
+    .qa-steps.collapsed .qa-steps-list { display: none; }
+
+    .qa-answer-text { color: #1d1d1f; white-space: pre-wrap; word-break: break-word; }
+    .qa-ts-link { color: #007aff; cursor: pointer; font-size: 0.88em; font-weight: 600; text-decoration: none; border-radius: 4px; padding: 0 3px; }
+    .qa-ts-link:hover { background: rgba(0,122,255,0.08); }
+
+    #qa-input-box { display: flex; flex-direction: column; flex-shrink: 0; border: 1.5px solid #e8e8ed; border-radius: 12px; background: #f5f5f7; transition: border-color 0.2s ease, box-shadow 0.2s ease; min-height: 100px; }
+    #qa-input-box:focus-within { border-color: #007aff; box-shadow: 0 0 0 3px rgba(0,122,255,0.10); background: #fff; }
+    #qa-input-box:has(#qa-question:disabled) { opacity: 0.55; pointer-events: none; }
+    #qa-question { flex: 1; background: transparent; border: none; outline: none; color: #1d1d1f; font-size: 0.9em; padding: 12px 14px 6px; resize: none; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; line-height: 1.5; min-height: 56px; overflow-y: hidden; }
+    #qa-question::placeholder { color: #aeaeb2; }
+    #qa-question:disabled { cursor: not-allowed; }
+    #qa-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; gap: 8px; }
+
+    #qa-send-btn { background: #007aff; color: #fff; border: none; border-radius: 8px; padding: 0 14px; height: 32px; cursor: pointer; font-size: 0.85em; font-weight: 500; flex-shrink: 0; display: flex; align-items: center; gap: 5px; transition: all 0.2s ease; }
+    #qa-send-btn:hover:not(:disabled) { background: #0066d6; box-shadow: 0 2px 8px rgba(0,122,255,0.25); }
+    #qa-send-btn:active:not(:disabled) { transform: scale(0.97); }
+    #qa-send-btn:disabled { background: #e8e8ed; color: #aeaeb2; cursor: not-allowed; }
+
+    /* Scope toggle pill */
+    #qa-scope-toggle { display: flex; align-items: center; background: #e8e8ed; border-radius: 8px; padding: 2px; gap: 2px; flex-shrink: 0; }
+    .scope-btn { padding: 5px 11px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.78em; font-weight: 500; background: transparent; color: #636366; transition: all 0.18s ease; white-space: nowrap; letter-spacing: -0.01em; }
+    .scope-btn.active { background: #fff; color: #1d1d1f; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .scope-btn:hover:not(.active) { color: #1d1d1f; }
+    #qa-scope-toggle.disabled { opacity: 0.4; pointer-events: none; }
+
+    /* Ingest New Video button */
+    .btn-ingest-new { background: #e8e8ed; color: #636366; font-size: 0.82em; display: flex; align-items: center; gap: 5px; }
+    .btn-ingest-new:hover { background: #d1d1d6; color: #1d1d1f; }
+    .btn-ingest-new::before { content: '+'; font-size: 1.1em; font-weight: 600; line-height: 1; }
+
+    /* ── Video history strip ──────────────────────────────────────────── */
+    #video-history-strip {
+      display: none;
+      flex-shrink: 0;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 2px 2px 4px;
+      scrollbar-width: thin;
+      scrollbar-color: #d1d1d6 transparent;
+    }
+    #video-history-strip::-webkit-scrollbar { height: 4px; }
+    #video-history-strip::-webkit-scrollbar-track { background: transparent; }
+    #video-history-strip::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 9999px; }
+
+    .history-strip-label {
+      font-size: 0.7em;
+      font-weight: 600;
+      color: #aeaeb2;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .history-thumb {
+      position: relative;
+      flex-shrink: 0;
+      width: 80px;
+      height: 50px;
+      border-radius: 9px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 2px solid transparent;
+      background: #e8e8ed;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.15s ease, opacity 0.18s ease;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+    }
+    .history-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      border-radius: 7px;
+    }
+    .history-thumb:hover:not(.disabled):not(.active) {
+      border-color: #aeaeb2;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.14);
+    }
+    .history-thumb:active:not(.disabled) { transform: translateY(0) scale(0.97); }
+    .history-thumb.active {
+      border-color: #007aff;
+      box-shadow: 0 0 0 2px rgba(0,122,255,0.18), 0 2px 8px rgba(0,122,255,0.18);
+    }
+    .history-thumb.disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    /* Fallback when no thumbnail image */
+    .history-thumb-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #e8e8ed;
+      font-size: 1.4em;
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #aeaeb2; }
+
+    /* ── Relationship Graph Tab ─────────────────────────────────────────── */
+    #relationship-tab-content {
+      flex: 1; display: none; position: relative;
+      background-color: #f8f8fa;
+      background-image: radial-gradient(circle, #c8c8d0 1px, transparent 1px);
+      background-size: 24px 24px;
+      border: 1px solid rgba(0,0,0,0.06); border-radius: 16px; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04); min-height: 0;
+    }
+    #relationship-graph { width: 100%; height: 100%; cursor: grab; display: block; }
+    #relationship-graph:active { cursor: grabbing; }
+
+    .graph-node { cursor: pointer; }
+    .graph-node circle { transition: r 0.15s ease; }
+    .graph-node:hover circle { r: 9; }
+    .graph-node-label { font-size: 10px; pointer-events: none; fill: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; }
+    .graph-edge { stroke: #d1d1d6; stroke-width: 1.5; }
+    .graph-edge.highlighted { stroke: #ff3b30; stroke-width: 2.5; }
+    .graph-edge.dimmed { stroke: #eeeeee; stroke-width: 1; }
+    .graph-edge-label { font-size: 9px; fill: #86868b; pointer-events: none; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; }
+
+    .graph-controls {
+      position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column;
+      align-items: flex-end; gap: 8px; z-index: 10;
+    }
+    .graph-controls-row {
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,0.92); backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 10px; padding: 7px 14px; font-size: 0.82em; color: #1d1d1f;
+    }
+    .graph-controls-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    .graph-controls-row input[type="checkbox"] { accent-color: #007aff; width: 14px; height: 14px; }
+
+    /* Pill toggle: This Video / All Videos */
+    .graph-scope-toggle {
+      display: flex; background: rgba(255,255,255,0.92); backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 10px; padding: 3px; font-size: 0.78em; font-weight: 500;
+    }
+    .graph-scope-toggle button {
+      border: none; background: transparent; cursor: pointer; padding: 4px 12px;
+      border-radius: 7px; color: #6e6e73; transition: background 0.15s, color 0.15s;
+      font-size: inherit; font-family: inherit; font-weight: inherit; white-space: nowrap;
+    }
+    .graph-scope-toggle button.active {
+      background: #007aff; color: #fff;
+    }
+    .graph-scope-toggle button:not(.active):hover { background: rgba(0,0,0,0.05); }
+
+    #graph-legend {
+      position: absolute; bottom: 12px; left: 12px;
+      background: rgba(255,255,255,0.92); backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 10px; padding: 10px 14px; font-size: 0.76em; z-index: 10;
+      max-width: 200px; max-height: 45%; overflow-y: auto;
+    }
+    .legend-title { font-weight: 600; color: #86868b; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 7px; }
+    .legend-item { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; color: #1d1d1f; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    @keyframes nodeDetailsIn { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    #node-details-panel {
+      position: absolute; top: 12px; right: 12px; width: 284px;
+      background: #fff; border: 1px solid rgba(0,0,0,0.08); border-radius: 18px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.16), 0 4px 12px rgba(0,0,0,0.06); z-index: 20;
+      display: none; animation: nodeDetailsIn 0.26s cubic-bezier(0.34, 1.4, 0.64, 1);
+      overflow: hidden;
+    }
+    .node-details-header-band { padding: 14px 40px 13px 16px; position: relative; border-bottom: 1px solid rgba(0,0,0,0.06); }
+    .node-type-badge { display: inline-block; font-size: 0.67em; font-weight: 600; padding: 2px 9px; border-radius: 9999px; color: #fff; white-space: nowrap; letter-spacing: 0.025em; margin-bottom: 7px; }
+    .node-details-close { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,0.07); border: none; color: #636366; cursor: pointer; font-size: 0.75em; display: flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
+    .node-details-close:hover { background: rgba(0,0,0,0.13); color: #1d1d1f; }
+    .node-details-name { font-size: 1.04em; font-weight: 700; color: #1d1d1f; line-height: 1.3; letter-spacing: -0.01em; word-break: break-word; }
+    .node-details-body { padding: 12px 16px 15px; }
+    .node-details-desc { font-size: 0.82em; color: #636366; line-height: 1.6; word-break: break-word; }
+    .node-details-divider { height: 1px; background: rgba(0,0,0,0.06); margin: 11px 0 10px; }
+    .node-ts-section-label { font-size: 0.67em; font-weight: 600; color: #aeaeb2; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 7px; }
+    .node-details-timestamps { display: flex; flex-wrap: wrap; gap: 5px; }
+    .node-ts-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.76em; padding: 4px 10px; background: rgba(0,122,255,0.07); color: #007aff; border-radius: 7px; cursor: pointer; font-weight: 500; transition: background 0.15s, transform 0.1s; border: 1px solid rgba(0,122,255,0.16); font-family: inherit; }
+    .node-ts-chip:hover { background: rgba(0,122,255,0.14); transform: translateY(-1px); }
+    .node-ts-chip:active { transform: translateY(0); }
+
+    .graph-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: #86868b; font-size: 0.9em; }
+    .graph-loading .spin-ring { width: 36px; height: 36px; border: 3px solid #e8e8ed; border-top-color: #007aff; border-radius: 50%; animation: spin 0.9s linear infinite; margin: 0 auto 14px; }
+  </style>
+</head>
+<body>
+
+<header>
+  VidEngram Demo
+  <span class="badge" id="video-badge" style="display:none"></span>
+  <a href="https://cei.pratt.duke.edu/" target="_blank" rel="noopener" class="header-logo-link" title="Duke CEI">
+    <img src="https://cei.pratt.duke.edu/sites/cei.pratt.duke.edu/files/cei-logo-white.svg" alt="Duke CEI" class="duke-cei-logo">
+  </a>
+  <a href="https://github.com/EverMind-AI/EverMemOS" target="_blank" rel="noopener" class="powered-by">
+    <img src="https://avatars.githubusercontent.com/u/229275294?s=200&v=4" alt="EverMemOS" class="powered-by-logo">
+    Powered by EverMemOS
+  </a>
+</header>
+
+<div class="main">
+
+  <!-- Left column -->
+  <div class="left">
+
+    <!-- Upload phase (shown first) -->
+    <div id="upload-phase">
+      <div class="upload-title">Select a video to analyze</div>
+      <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <div class="drop-icon">🎬</div>
+        <div class="drop-text">Drop a video here, or click to browse</div>
+        <div class="drop-hint">MP4, MOV, AVI, MKV and other formats supported</div>
+      </div>
+      <input type="file" id="file-input" accept="video/*" style="display:none" onchange="handleFileSelect(event)">
+      <div id="upload-progress">
+        <div class="step-label" id="upload-step">Uploading…</div>
+        <div class="progress-track" style="margin-top:6px">
+          <div class="progress-fill" id="upload-bar"></div>
+        </div>
+        <div class="progress-pct" id="upload-pct">0%</div>
+      </div>
+      <div id="upload-error"></div>
+    </div>
+
+    <!-- Ingest phase (shown after upload) -->
+    <div id="ingest-phase">
+      <div class="step-label" id="step-label">Starting...</div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-bar"></div>
+      </div>
+      <div class="progress-pct" id="progress-pct">0%</div>
+
+      <!-- Step 1 segmentation progress -->
+      <div id="seg-progress-ui" class="sub-progress-ui">
+        <div id="seg-progress-text" class="sub-progress-text">Segmenting...</div>
+        <div class="progress-track" style="width:80%;">
+          <div class="progress-fill" id="seg-bar"></div>
+        </div>
+      </div>
+
+      <!-- Step 2 ASR progress -->
+      <div id="asr-progress-ui" class="sub-progress-ui">
+        <div id="asr-progress-text" class="sub-progress-text">Speech Recognition...</div>
+        <div class="progress-track" style="width:80%;">
+          <div class="progress-fill" id="asr-bar"></div>
+        </div>
+      </div>
+
+      <div class="ingest-log" id="ingest-log"></div>
+    </div>
+
+    <!-- Video phase (shown after Play) -->
+    <div id="video-phase">
+      <div class="video-wrapper">
+        <video id="video" preload="metadata" crossorigin="anonymous"></video>
+        <div id="subtitle-overlay" class="hidden"></div>
+      </div>
+      <div id="video-controls">
+        <button class="icon-btn" id="video-play-btn" onclick="videoTogglePlay()" title="Play/Pause">
+          <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button class="icon-btn" id="video-mute-btn" onclick="videoToggleMute()" title="Mute/Unmute">
+          <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+        <div id="video-progress-bar" onclick="videoSeek(event)">
+          <div id="video-progress-fill"></div>
+          <!-- QA highlight spans injected here by JS -->
+        </div>
+        <span id="video-time">0:00 / 0:00</span>
+      </div>
+      <canvas id="grabCanvas" style="display:none;"></canvas>
+    </div>
+
+    <!-- Video history strip (shown when ≥1 completed video exists) -->
+    <div id="video-history-strip">
+      <span class="history-strip-label">Recent</span>
+    </div>
+
+    <!-- Controls (always visible) -->
+    <div class="controls">
+      <button id="btnStart" class="btn-primary" disabled onclick="startPlayback()">▶ Play</button>
+      <button id="btnLive" class="btn-live off" onclick="toggleLive()">Live analysis: OFF</button>
+      <button id="btnIngestNew" class="btn-ingest-new" onclick="ingestNewVideo()">Ingest New Video</button>
+      <span id="status">Upload a video to begin.</span>
+    </div>
+
+  </div>
+
+  <!-- Right column -->
+  <div class="right">
+
+    <!-- Tab buttons -->
+    <div id="right-tabs">
+      <button id="tab-scene-btn" class="tab-btn active" onclick="switchTab('scene')">Memory</button>
+      <button id="tab-qa-btn" class="tab-btn" disabled onclick="switchTab('qa')">Q&amp;A</button>
+      <button id="tab-rel-btn" class="tab-btn" disabled onclick="switchTab('relationship')">Relationship</button>
+    </div>
+
+    <!-- Memory tab content -->
+    <div id="scene-tab-content">
+
+      <!-- Memory feed: shown during ingest sync and normal playback -->
+      <div id="ingest-feed">
+        <div id="ingest-feed-title">Memory Feed - Processing Segments</div>
+        <div id="ingest-feed-body"></div>
+      </div>
+
+      <!-- Live analysis panel: shown only when Live mode is ON -->
+      <div id="live-panel" class="panel" style="display:none">
+        <div class="panel-title">Live Analysis</div>
+        <div class="panel-body dim" id="scene">Waiting for video…</div>
+        <div id="scene-connections" style="display:none">
+          <hr class="connections-divider">
+          <span class="connections-label">Memory Connection: </span><span id="connections-text"></span>
+        </div>
+        <div class="panel-ts" id="scene-ts"></div>
+      </div>
+
+    </div>
+
+    <!-- Relationship graph tab content -->
+    <div id="relationship-tab-content">
+      <svg id="relationship-graph"></svg>
+      <div class="graph-controls">
+        <div class="graph-controls-row">
+          <label>
+            <input type="checkbox" id="edge-labels-toggle" checked onchange="graphToggleEdgeLabels(this.checked)">
+            Show Edge Labels
+          </label>
+        </div>
+        <div class="graph-scope-toggle">
+          <button id="graph-scope-this" class="active" onclick="graphSetScope('this')">This Video</button>
+          <button id="graph-scope-all" onclick="graphSetScope('all')">All Videos</button>
+        </div>
+      </div>
+      <div id="graph-legend"></div>
+      <div id="node-details-panel">
+        <div class="node-details-header-band" id="node-details-header-band">
+          <button class="node-details-close" onclick="graphCloseDetails()">&#x2715;</button>
+          <span id="node-type-badge" class="node-type-badge"></span>
+          <div class="node-details-name" id="node-details-name"></div>
+        </div>
+        <div class="node-details-body">
+          <div class="node-details-desc" id="node-details-desc"></div>
+          <div class="node-details-divider" id="node-ts-divider" style="display:none"></div>
+          <div class="node-ts-section-label" id="node-ts-label" style="display:none">Appears at</div>
+          <div class="node-details-timestamps" id="node-details-timestamps"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Q&A tab content -->
+    <div id="qa-tab-content">
+      <div id="qa-messages"></div>
+      <div id="qa-input-box">
+        <textarea
+          id="qa-question"
+          placeholder="Waiting until memories ingested…"
+          disabled
+          oninput="autoResizeQA()"
+          onkeydown="qaKeydown(event)"
+        ></textarea>
+        <div id="qa-toolbar">
+          <div id="qa-scope-toggle" class="disabled">
+            <button class="scope-btn active" id="scope-btn-current" onclick="setQAScope('current')">This Video</button>
+            <button class="scope-btn" id="scope-btn-all" onclick="setQAScope('all')">All Videos</button>
+          </div>
+          <button id="qa-send-btn" onclick="submitQA()" disabled>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            Ask
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const statusEl  = document.getElementById('status');
+const btnStart  = document.getElementById('btnStart');
+const btnLive   = document.getElementById('btnLive');
+const video     = document.getElementById('video');
+const canvas    = document.getElementById('grabCanvas');
+const ctx       = canvas.getContext('2d', { willReadFrequently: false });
+
+let qaSearchScope = 'current';
+
+// ── Video history state ───────────────────────────────────────────────────
+let videoHistory      = [];   // [{group_id, filename, video_url, ...}]
+let currentGroupId    = null; // group_id of the video currently in video-phase
+let ingestInProgress  = false; // true while upload/ingest is running
+
+let lastQueryBucket = -1;
+let ingestReader    = null;
+let liveOn          = false;
+let analyzeAbort    = null;
+let analyzing       = false;
+let descProtected   = false;
+let descProtectTimer = null;
+let subtitleCues    = [];   // [{start, end, text}]  from /subtitle_cues
+let memoryCues      = [];   // [{start, end, scene, dialogue}]  from /memory_cues
+let speechCues      = [];   // [{start_sec, end_sec, text}]  from /speech_cues (Whisper)
+let uploadedVideoUrl = null;
+let liveDialogueFallback = '';  // last dialogue from /analyze, used as fallback in live mode when no speechCue
+
+// ── Segmentation progress state ──────────────────────────────────────────────
+let segEstimatedTotal = 0;   // total sentence groups (from ASR log line)
+let segDoneCount      = 0;   // clips extracted so far
+
+// ── ASR (Automatic Speech Recognition) progress state ────────────────────────
+let asrEstimatedTotal = 0;   // total 30s audio chunks to transcribe
+let asrDoneCount      = 0;   // chunks transcribed so far (current chunk index)
+
+function showSegProgressUI() {
+  document.getElementById('ingest-log').style.display      = 'none';
+  document.getElementById('asr-progress-ui').style.display = 'none';  // ASR is done
+  document.getElementById('seg-progress-ui').style.display = 'flex';
+}
+
+function updateSegProgress() {
+  const pct  = segEstimatedTotal > 0
+    ? Math.min(100, Math.round((segDoneCount / segEstimatedTotal) * 100))
+    : 0;
+  const text = segEstimatedTotal > 0
+    ? `Segmenting ${segDoneCount}/${segEstimatedTotal}`
+    : 'Segmenting…';
+  document.getElementById('seg-bar').style.width        = pct + '%';
+  document.getElementById('seg-progress-text').textContent = text;
+}
+
+function showAsrProgressUI() {
+  document.getElementById('ingest-log').style.display      = 'none';
+  document.getElementById('asr-progress-ui').style.display = 'flex';
+}
+
+function updateAsrProgress() {
+  const pct  = asrEstimatedTotal > 0
+    ? Math.min(100, Math.round((asrDoneCount / asrEstimatedTotal) * 100))
+    : 0;
+  const text = asrEstimatedTotal > 0
+    ? `Automatic Speech Recognition (ASR)  ${asrDoneCount} / ${asrEstimatedTotal}`
+    : 'Automatic Speech Recognition (ASR)…';
+  document.getElementById('asr-bar').style.width           = pct + '%';
+  document.getElementById('asr-progress-text').textContent = text;
+}
+
+// ── Ingest sync state ────────────────────────────────────────────────────────
+let ingestSegments     = [];   // [{index, start_sec, end_sec}] from SEGMENTS_JSON
+let ingestCaptionsDone = {};   // index → caption raw_text
+let ingestCurrentSeg   = 0;    // which segment the video is playing toward
+let ingestWaiting      = false; // true while video is paused awaiting a caption
+let ingestSyncActive   = false; // true from SEGMENTS_JSON until Play is clicked
+let ingestShownCardFor = new Set(); // segment indices whose card has been shown
+let lastHighlightedSegIndex = -1; // tracks currently highlighted card
+
+// ── Fix main section height to exactly viewport minus header ────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const header = document.querySelector('header');
+  const main   = document.querySelector('.main');
+  const setMainHeight = () => {
+    main.style.height = `calc(100vh - ${header.offsetHeight}px)`;
+  };
+  setMainHeight();
+  window.addEventListener('resize', setMainHeight);
+});
+
+// ── Drag-and-drop setup ─────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const zone = document.getElementById('drop-zone');
+  zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', ()  => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  });
+});
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) uploadFile(file);
+}
+
+// ── Upload ──────────────────────────────────────────────────────────────
+function uploadFile(file) {
+  ingestInProgress = true;
+  renderVideoHistory(); // disable thumbnail clicks while ingesting
+  // Show progress, hide drop zone and any prior error
+  document.getElementById('drop-zone').style.display       = 'none';
+  document.getElementById('upload-progress').style.display = 'block';
+  document.getElementById('upload-error').style.display    = 'none';
+  document.getElementById('upload-step').textContent       = `Uploading "${file.name}"…`;
+  document.getElementById('upload-bar').style.width        = '0%';
+  document.getElementById('upload-pct').textContent        = '0%';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/upload');
+
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      document.getElementById('upload-bar').style.width  = pct + '%';
+      document.getElementById('upload-pct').textContent  = pct + '%';
+      document.getElementById('upload-step').textContent = `Uploading "${file.name}"… ${pct}%`;
+    }
+  };
+
+  // File fully sent to server — may still be transferring to remote analysis server
+  xhr.upload.onload = () => {
+    document.getElementById('upload-bar').style.width  = '100%';
+    document.getElementById('upload-pct').textContent  = '100%';
+    document.getElementById('upload-step').textContent = 'Transferring to analysis server…';
+  };
+
+  xhr.onload = () => {
+    if (xhr.status === 200) {
+      const data = JSON.parse(xhr.responseText);
+      uploadedVideoUrl = data.video_url;
+
+      // Show filename in header badge
+      const badge = document.getElementById('video-badge');
+      badge.textContent = file.name;
+      badge.style.display = 'inline';
+
+      // Set video source
+      video.src = uploadedVideoUrl;
+
+      // Transition: upload → ingest
+      document.getElementById('upload-phase').style.display  = 'none';
+      document.getElementById('ingest-phase').style.display  = 'flex';
+
+      statusEl.textContent = 'Ingesting video, please wait…';
+      startIngest();
+    } else {
+      let msg = `Upload failed (HTTP ${xhr.status}).`;
+      try {
+        const errData = JSON.parse(xhr.responseText);
+        if (errData.detail) msg += ' ' + errData.detail;
+      } catch (_) {}
+      showUploadError(msg + ' Please try again.');
+    }
+  };
+
+  xhr.onerror = () => showUploadError('Upload failed (network error). Please try again.');
+  xhr.send(formData);
+}
+
+function showUploadError(msg) {
+  document.getElementById('drop-zone').style.display       = 'block';
+  document.getElementById('upload-progress').style.display = 'none';
+  const errEl = document.getElementById('upload-error');
+  errEl.textContent    = msg;
+  errEl.style.display  = 'block';
+  // Reset file input so the same file can be re-selected
+  document.getElementById('file-input').value = '';
+}
+
+// ── Ingest ──────────────────────────────────────────────────────────────
+async function loadSubtitleCues() {
+  try {
+    const res = await fetch('/subtitle_cues');
+    if (!res.ok) return;
+    const data = await res.json();
+    subtitleCues = data.cues || [];
+    console.log(`[subtitles] ${subtitleCues.length} cue(s) loaded`);
+  } catch (e) {
+    console.warn('[subtitles] Failed to load:', e);
+  }
+}
+
+async function loadMemoryCues() {
+  try {
+    const res = await fetch('/memory_cues');
+    if (!res.ok) return;
+    const data = await res.json();
+    memoryCues = data.cues || [];
+    console.log(`[memory] ${memoryCues.length} memory cue(s) loaded`);
+    if (subtitleCues.length === 0 && memoryCues.some(c => c.dialogue)) {
+      subtitleCues = memoryCues
+        .filter(c => c.dialogue)
+        .map(c => ({ start: c.start, end: c.end, text: c.dialogue }));
+      console.log(`[subtitles] Populated ${subtitleCues.length} subtitle cue(s) from memory cues`);
+    }
+  } catch (e) {
+    console.warn('[memory] Failed to load:', e);
+  }
+}
+
+async function loadSpeechCues() {
+  try {
+    const res = await fetch('/speech_cues');
+    if (!res.ok) return;
+    const data = await res.json();
+    speechCues = data.cues || [];
+    console.log(`[speech] ${speechCues.length} Whisper cue(s) loaded`);
+  } catch (e) {
+    console.warn('[speech] Failed to load:', e);
+  }
+}
+
+let segmentCues = [];   // [{start, end, content}] full raw captions sorted by start_sec
+
+async function loadSegmentCues() {
+  try {
+    const res = await fetch('/segment_cues');
+    if (!res.ok) return;
+    const data = await res.json();
+    segmentCues = data.cues || [];
+    console.log(`[segments] ${segmentCues.length} segment cue(s) loaded`);
+  } catch (e) {
+    console.warn('[segments] Failed to load segment cues:', e);
+  }
+}
+
+async function loadAllCues() {
+  await Promise.all([loadSubtitleCues(), loadMemoryCues(), loadSpeechCues(), loadSegmentCues()]);
+}
+
+function getSubtitleCueAt(ts) {
+  // 1. Prefer Whisper speech cues (precise timestamps, higher accuracy)
+  for (const cue of speechCues) {
+    if (ts >= cue.start_sec && ts <= cue.end_sec) {
+      return { start: cue.start_sec, end: cue.end_sec, text: cue.text };
+    }
+  }
+  // 2. Fall back to memory-derived DIALOGUE cues
+  for (const cue of subtitleCues) {
+    if (ts >= cue.start && ts <= cue.end) return cue;
+  }
+  return null;
+}
+
+function getSubtitleAt(ts) {
+  const cue = getSubtitleCueAt(ts);
+  return cue ? cue.text : '';
+}
+
+function getSceneAt(ts) {
+  for (const cue of memoryCues) {
+    if (ts >= cue.start && ts <= cue.end) return cue.scene;
+  }
+  return '';
+}
+
+async function startIngest() {
+  // Reset graph state for this new ingest
+  graphData     = null;
+  graphRendered = false;
+  if (graphPoller) { clearInterval(graphPoller); graphPoller = null; }
+  document.getElementById('tab-rel-btn').disabled = true;
+  document.getElementById('tab-rel-btn').classList.remove('active');
+  d3.select('#relationship-graph').selectAll('*').remove();
+  document.getElementById('graph-legend').innerHTML = '';
+  graphCloseDetails();
+
+  setProgress(2);
+  setStep('Connecting...');
+  try {
+    const res = await fetch('/ingest', { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    ingestReader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await ingestReader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith('data:')) continue;
+        let msg;
+        try { msg = JSON.parse(t.slice(5).trim()); } catch { continue; }
+
+        if (msg.segments) {
+          onIngestSegments(msg.segments);
+        } else if (msg.caption) {
+          onIngestCaption(msg.caption);
+        } else if (msg.done) {
+          if (!msg.error && (msg.returncode === 0 || msg.returncode == null)) {
+            if (msg.group_id) currentGroupId = msg.group_id;
+            onIngestDone();
+          } else onIngestError(msg.error || `Process exited with code ${msg.returncode}`);
+        } else if (msg.error) {
+          onIngestError(msg.error);
+        } else if (msg.line !== undefined) {
+          updateProgressFromLine(msg.line);
+        }
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') onIngestError(e.message);
+  }
+}
+
+function updateProgressFromLine(line) {
+  const l = line.toLowerCase();
+  let cls = '';
+
+  // ── Segmentation progress (parse backend log lines) ──────────────────────
+  // "... INFO: Video duration: 120.0s, strategy: adaptive" → segmentation starting
+  const durMatch = line.match(/Video duration:\s*([\d.]+)s/);
+  if (durMatch) {
+    segEstimatedTotal = 0;   // will be updated by sentence-group log below
+    segDoneCount = 0;
+    showSegProgressUI();
+    updateSegProgress();
+    return;
+  }
+
+  // "... INFO: ASR-first: 23 sentence group(s) as cut points (37 Whisper segment(s))"
+  const sentGroupMatch = line.match(/ASR-first:\s*(\d+)\s*sentence group/i);
+  if (sentGroupMatch) {
+    segEstimatedTotal = parseInt(sentGroupMatch[1]);
+    updateSegProgress();
+    return;
+  }
+
+  // "... DEBUG: Clip extracted: /path/to/seg.mp4"
+  if (line.includes('Clip extracted:')) {
+    segDoneCount++;
+    updateSegProgress();
+    return;
+  }
+
+  // "... INFO: Created 12 segments"
+  const createdMatch = line.match(/Created (\d+) segments?/);
+  if (createdMatch) {
+    segDoneCount      = parseInt(createdMatch[1]);
+    segEstimatedTotal = segDoneCount;
+    updateSegProgress();
+    return;
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
+  // ── Step 1 ASR progress (parse transcriber log lines) ───────────────────
+  // "... INFO: Transcribing 120s of audio in 4 chunk(s) (30s each)"
+  const asrTotalMatch = line.match(/in (\d+) chunk/i);
+  if (asrTotalMatch) {
+    asrEstimatedTotal = parseInt(asrTotalMatch[1]);
+    asrDoneCount = 0;
+    showAsrProgressUI();
+    updateAsrProgress();
+    return;
+  }
+
+  // "... INFO:   Chunk [2/4] 0:30 – 1:00"
+  const asrChunkMatch = line.match(/Chunk \[(\d+)\/(\d+)\]/i);
+  if (asrChunkMatch) {
+    asrDoneCount      = parseInt(asrChunkMatch[1]);
+    asrEstimatedTotal = parseInt(asrChunkMatch[2]);
+    updateAsrProgress();
+    return;
+  }
+
+  // "... INFO: Transcription complete: 18 segment(s)"
+  if (l.includes('transcription complete')) {
+    asrDoneCount = asrEstimatedTotal;
+    updateAsrProgress();
+    return;
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
+  if (l.includes('step 1/5')) {
+    setStep('Speech Recognition'); setProgress(10); cls = 'step';
+  } else if (l.includes('step 2/5')) {
+    setStep('Segmenting Video'); setProgress(30); cls = 'step';
+  } else if (l.includes('step 3/5')) {
+    setStep('Captioning Scenes'); setProgress(55); cls = 'step';
+  } else if (l.includes('step 4/5')) {
+    setStep('Consolidating Memories'); setProgress(78); cls = 'step';
+  } else if (l.includes('step 5/5')) {
+    setStep('Saving to EverMemOS'); setProgress(88); cls = 'step';
+  } else if (l.includes('waiting') && l.includes('index')) {
+    setStep('Building Search Index'); setProgress(93);
+  } else if (l.includes('ingestion complete') || l.includes('✅')) {
+    setProgress(98);
+  } else if (l.includes('error') || l.includes('traceback')) {
+    cls = 'err';
+  } else if (l.includes('warning') || l.includes('warn')) {
+    cls = 'warn';
+  }
+
+  if (cls) appendLog(line, cls);
+  else appendLog(line);
+}
+
+function onIngestDone() {
+  ingestInProgress = false;
+  setProgress(100);
+  setStep('Complete');
+  statusEl.textContent = 'Ready. Click "Play".';
+  btnStart.disabled = false;
+  enableQAInput();
+  appendLog('', '');
+  appendLog('Ingest complete. Click "Play".', 'ok');
+
+  fetch('/reload_cache', { method: 'POST' })
+    .then(() => loadAllCues())
+    .catch(() => {});
+
+  // Add new video to history strip
+  loadVideoHistory();
+
+  // Safety net: if the video is still paused waiting for a caption that has
+  // already arrived (e.g. final caption came just before the done event),
+  // show it and resume so the last segment doesn't stay frozen.
+  if (ingestSyncActive && ingestWaiting) {
+    const seg = ingestSegments[ingestCurrentSeg];
+    if (seg && ingestCaptionsDone[seg.index] !== undefined) {
+      showIngestCaptionCard(seg.index, seg.start_sec, seg.end_sec, ingestCaptionsDone[seg.index], true);
+      ingestCurrentSeg++;
+      ingestWaiting = false;
+      video.play().catch(() => {});
+    }
+  }
+}
+
+function onIngestError(msg) {
+  ingestInProgress = false;
+  renderVideoHistory(); // re-enable thumbnail clicks
+  setStep('⚠️ Ingest error (you can still play if already ingested)');
+  statusEl.textContent = 'If the video was already ingested, click "Play".';
+  btnStart.disabled = false;
+  appendLog(`[ERROR] ${msg}`, 'err');
+}
+
+
+// ── Playback ────────────────────────────────────────────────────────────
+function startPlayback() {
+  // Exit ingest sync mode if active
+  if (ingestSyncActive) {
+    ingestSyncActive = false;
+    ingestWaiting    = false;
+    video.removeEventListener('timeupdate', onIngestTimeUpdate);
+  }
+
+  // Keep memory feed visible; update title and ensure live panel is hidden
+  document.getElementById('ingest-feed-title').textContent = 'Memories';
+  document.getElementById('live-panel').style.display = 'none';
+  switchTab('scene');
+
+  // Hide ingest phase, ensure video phase is visible
+  document.getElementById('ingest-phase').style.display = 'none';
+  document.getElementById('video-phase').style.display  = 'flex';
+
+  btnStart.disabled    = true;
+  btnStart.textContent = '▶ Playing';
+  statusEl.textContent = 'Playing…';
+
+  renderVideoHistory(); // update active highlight
+
+  video.play().catch(e => {
+    statusEl.textContent = 'Video playback failed: ' + e.message;
+  });
+
+  video.addEventListener('timeupdate', onVideoTimeUpdate);
+  video.addEventListener('seeked', onVideoSeeked);
+
+  lastQueryBucket = -1;
+  lastHighlightedSegIndex = -1;
+  loadAllCues();
+  tickAtCurrentTime(true);
+}
+
+function toggleLive() {
+  liveOn = !liveOn;
+  if (liveOn) {
+    btnLive.textContent = 'Live analysis: ON';
+    btnLive.classList.remove('off');
+    statusEl.textContent = 'Live analysis enabled (1 frame every 3 seconds).';
+    document.getElementById('ingest-feed').style.display = 'none';
+    document.getElementById('live-panel').style.display = '';
+    tickAtCurrentTime(true);
+  } else {
+    btnLive.textContent = 'Live analysis: OFF';
+    btnLive.classList.add('off');
+    statusEl.textContent = 'Live analysis disabled (using /memories).';
+    document.getElementById('live-panel').style.display = 'none';
+    document.getElementById('ingest-feed').style.display = 'flex';
+    cancelAnalyze();
+  }
+}
+
+function cancelAnalyze() {
+  try { if (analyzeAbort) analyzeAbort.abort(); } catch (_) {}
+  analyzeAbort = null;
+  analyzing = false;
+}
+
+function onVideoTimeUpdate() {
+  const ts = video.currentTime;
+
+  if (!liveOn) {
+    // Highlight the memory card corresponding to the current playback position
+    if (!ingestSyncActive) highlightCurrentSegment(ts);
+
+    if (memoryCues.length > 0) {
+      const scene = getSceneAt(ts);
+      const sceneEl = document.getElementById('scene');
+      if (scene && scene !== sceneEl.textContent) {
+        setPanel('scene', scene, ts);
+      }
+    }
+
+    if (subtitleCues.length > 0 || speechCues.length > 0) {
+      const cue = getSubtitleCueAt(ts);
+      const sub = cue ? cue.text : '';
+      const overlayEl = document.getElementById('subtitle-overlay');
+      const currentSub = overlayEl.classList.contains('hidden') ? '' : overlayEl.textContent;
+      if (sub !== currentSub) {
+        setDialogue(sub, cue ? cue.start : ts);
+      }
+    }
+  } else {
+    // Live mode: subtitles from speechCues only, fallback to liveDialogueFallback
+    let sc = null;
+    for (const cue of speechCues) {
+      if (ts >= cue.start_sec && ts <= cue.end_sec) { sc = cue; break; }
+    }
+    const sub = sc ? sc.text : liveDialogueFallback;
+    const overlayEl = document.getElementById('subtitle-overlay');
+    const currentSub = overlayEl.classList.contains('hidden') ? '' : overlayEl.textContent;
+    if (sub !== currentSub) {
+      setDialogue(sub, sc ? sc.start_sec : ts);
+    }
+  }
+
+  const bucket = Math.floor(video.currentTime / 3);
+  if (bucket === lastQueryBucket) return;
+  lastQueryBucket = bucket;
+  if (descProtected) return;
+  tickAtCurrentTime(false);
+}
+
+function onVideoSeeked() {
+  clearTimeout(descProtectTimer);
+  descProtected = false;
+  descProtectTimer = null;
+  lastQueryBucket = -1;
+  const ts = video.currentTime;
+  if (!liveOn) {
+    if (!ingestSyncActive) {
+      lastHighlightedSegIndex = -1; // force re-evaluation after seek
+      highlightCurrentSegment(ts);
+    }
+    if (memoryCues.length > 0)   setPanel('scene',    getSceneAt(ts),    ts);
+    if (subtitleCues.length > 0 || speechCues.length > 0) {
+      const cue = getSubtitleCueAt(ts);
+      setDialogue(cue ? cue.text : '', cue ? cue.start : ts);
+    }
+  } else {
+    // Live mode: clear stale fallback, immediately show speech cue if available
+    liveDialogueFallback = '';
+    let sc = null;
+    for (const cue of speechCues) {
+      if (ts >= cue.start_sec && ts <= cue.end_sec) { sc = cue; break; }
+    }
+    setDialogue(sc ? sc.text : '', sc ? sc.start_sec : ts);
+  }
+  tickAtCurrentTime(true);
+}
+
+function tickAtCurrentTime(force) {
+  if (liveOn) analyzeCurrentFrame(force);
+  else queryMemories();
+}
+
+async function queryMemories() {
+  const ts = video.currentTime;
+
+  if (memoryCues.length > 0 && getSceneAt(ts)) {
+    statusEl.textContent = 'Playing · Memory cue at ' + new Date().toLocaleTimeString();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/memories?ts=${ts.toFixed(1)}`);
+    if (!res.ok) {
+      setPanel('scene', `[HTTP ${res.status}] /memories failed`, ts);
+      return;
+    }
+    const data = await res.json();
+    if (!getSceneAt(ts)) setPanel('scene', data.scene || '(Empty)', ts);
+    if (subtitleCues.length === 0 && speechCues.length === 0) {
+      setDialogue(data.dialogue || '', ts);
+    }
+    statusEl.textContent = 'Playing · Memory query at ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    if (!getSceneAt(ts)) setPanel('scene', 'Query error: ' + e.message, ts);
+  }
+}
+
+function grabFrameBase64() {
+  const w = video.videoWidth || 0;
+  const h = video.videoHeight || 0;
+  if (!w || !h) return null;
+
+  const maxW = 640;
+  const scale = Math.min(1, maxW / w);
+  const cw = Math.floor(w * scale);
+  const ch = Math.floor(h * scale);
+
+  canvas.width = cw;
+  canvas.height = ch;
+  ctx.drawImage(video, 0, 0, cw, ch);
+
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
+  const commaIdx = dataUrl.indexOf(',');
+  return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : null;
+}
+
+async function analyzeCurrentFrame(force) {
+  const ts = video.currentTime;
+  if (analyzing && !force) return;
+
+  const frameB64 = grabFrameBase64();
+  if (!frameB64) {
+    statusEl.textContent = 'Live analysis: video metadata not ready yet…';
+    return;
+  }
+
+  cancelAnalyze();
+  analyzing = true;
+  analyzeAbort = new AbortController();
+
+  setPanel('scene', '(Live analyzing… streaming tokens)', ts);
+  // Reset connections section while new analysis is running
+  document.getElementById('scene-connections').style.display = 'none';
+  document.getElementById('connections-text').textContent = '';
+
+  let rawText = '';
+  try {
+    const res = await fetch('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: analyzeAbort.signal,
+      body: JSON.stringify({ frame: frameB64, timestamp: ts })
+    });
+
+    if (!res.ok) {
+      analyzing = false;
+      setPanel('scene', `[HTTP ${res.status}] /analyze failed`, ts);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith('data:')) continue;
+
+        let msg;
+        try { msg = JSON.parse(t.slice(5).trim()); } catch { continue; }
+
+        if (msg.token) {
+          rawText += msg.token;
+          // Do not display raw JSON tokens; wait for the final parsed result
+          statusEl.textContent = 'Live analysis… streaming tokens';
+        }
+
+        if (msg.final) {
+          const scene = (msg.final.scene || '').trim();
+          liveDialogueFallback = (msg.final.dialogue || '').trim();
+          setPanel('scene', scene || '(No scene description)', ts);
+
+          const connections = (msg.final.connections || '').trim();
+          const sceneConn = document.getElementById('scene-connections');
+          if (connections) {
+            document.getElementById('connections-text').textContent = connections;
+            sceneConn.style.display = '';
+          } else {
+            sceneConn.style.display = 'none';
+          }
+
+          statusEl.textContent = 'Live analysis done at ' + new Date().toLocaleTimeString();
+          clearTimeout(descProtectTimer);
+          descProtected = true;
+          descProtectTimer = setTimeout(() => {
+            descProtected = false;
+            descProtectTimer = null;
+            if (liveOn) analyzeCurrentFrame(false);
+          }, 5000);
+        }
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      setPanel('scene', 'Live analysis error: ' + e.message, ts);
+    }
+  } finally {
+    analyzing = false;
+  }
+}
+
+// ── Subtitle overlay ─────────────────────────────────────────────────────
+function setDialogue(text, ts) {
+  setSubtitleOverlay(text);
+}
+
+function setSubtitleOverlay(text) {
+  const el = document.getElementById('subtitle-overlay');
+  if (text) {
+    el.textContent = text;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
+
+// ── UI helpers ──────────────────────────────────────────────────────────
+function setProgress(pct) {
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent = Math.round(pct) + '%';
+}
+
+function setStep(text) {
+  document.getElementById('step-label').textContent = text;
+}
+
+function appendLog(text, cls) {
+  const log  = document.getElementById('ingest-log');
+  const div  = document.createElement('div');
+  div.className = 'log-line' + (cls ? ' ' + cls : '');
+  div.textContent = text;
+  log.appendChild(div);
+  while (log.childElementCount > 80) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ── Ingest sync functions ────────────────────────────────────────────────────
+
+function fmtSec(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function onIngestSegments(data) {
+  ingestSegments     = data.segments || [];
+  ingestCaptionsDone = {};
+  ingestCurrentSeg   = 0;
+  ingestWaiting      = false;
+  ingestSyncActive   = true;
+  ingestShownCardFor = new Set();
+
+  // Compact the ingest-phase panel to just the progress bar (hide log + sub-progress UIs)
+  document.getElementById('ingest-phase').classList.add('compact');
+  document.getElementById('ingest-log').style.display      = 'none';
+  document.getElementById('seg-progress-ui').style.display = 'none';
+  document.getElementById('asr-progress-ui').style.display = 'none';
+
+  // Show the video player alongside the progress bar
+  document.getElementById('video-phase').style.display = 'flex';
+
+  // Right column: show memory feed, hide scene/transcript panels (original behaviour)
+  document.getElementById('ingest-feed').style.display = 'flex';
+  document.querySelectorAll('#scene-tab-content > .panel').forEach(p => { p.style.display = 'none'; });
+
+  // ASR is complete at this point — load speech cues so subtitles display
+  // from the very first frame of playback.
+  loadSpeechCues();
+
+  // Start playing from the beginning
+  video.currentTime = 0;
+  video.play().catch(() => {});
+  video.addEventListener('timeupdate', onIngestTimeUpdate);
+
+  statusEl.textContent = 'Processing video segments...';
+}
+
+function onIngestCaption(payload) {
+  const { index, start_sec, end_sec, text } = payload;
+  ingestCaptionsDone[index] = text;
+
+  // Caption just arrived — if we've already shown a card for this segment
+  // (waiting or otherwise), replace it immediately without waiting for end_sec.
+  if (ingestShownCardFor.has(index)) {
+    showIngestCaptionCard(index, start_sec, end_sec, text, true);
+  }
+
+  // If video is paused waiting for exactly this caption, advance and resume.
+  const seg = ingestSegments[ingestCurrentSeg];
+  if (ingestWaiting && seg && seg.index === index) {
+    ingestCurrentSeg++;
+    ingestWaiting = false;
+    video.play().catch(() => {});
+  }
+}
+
+function onIngestTimeUpdate() {
+  if (!ingestSyncActive || ingestWaiting) return;
+
+  const ts  = video.currentTime;
+  const seg = ingestSegments[ingestCurrentSeg];
+  if (!seg) return;
+
+  // ── Subtitle overlay (uses speech cues loaded after ASR) ─────────────────
+  if (speechCues.length > 0 || subtitleCues.length > 0) {
+    const cue = getSubtitleCueAt(ts);
+    setSubtitleOverlay(cue ? cue.text : '');
+  }
+
+
+  // ── Show ingesting card at segment START (not end) ────────────────────────
+  if (ts >= seg.start_sec && !ingestShownCardFor.has(seg.index)) {
+    ingestShownCardFor.add(seg.index);
+    if (ingestCaptionsDone[seg.index] !== undefined) {
+      // Caption already arrived before start_sec — show completed card now
+      showIngestCaptionCard(seg.index, seg.start_sec, seg.end_sec, ingestCaptionsDone[seg.index], false);
+    } else {
+      // Caption not yet available — show waiting card; onIngestCaption will replace it
+      showIngestWaitingCard(seg);
+    }
+  }
+
+  // ── At segment END: advance or wait ──────────────────────────────────────
+  if (ts >= seg.end_sec) {
+    if (ingestCaptionsDone[seg.index] !== undefined) {
+      // Caption received (card already showing correct content) — advance silently
+      ingestCurrentSeg++;
+    } else {
+      // Caption not ready — pause; card already showing waiting state from start_sec
+      video.pause();
+      ingestWaiting = true;
+    }
+  }
+}
+
+function showIngestWaitingCard(seg) {
+  const feedBody = document.getElementById('ingest-feed-body');
+  const existing = document.getElementById(`cap-card-${seg.index}`);
+  if (existing) existing.remove();
+
+  const segNum = seg.index + 1;
+  const total  = ingestSegments.length;
+
+  const card = document.createElement('div');
+  card.className = 'caption-card waiting';
+  card.id        = `cap-card-${seg.index}`;
+  card.innerHTML =
+    `<div class="caption-card-ts">Segment ${segNum}/${total}  ${fmtSec(seg.start_sec)} - ${fmtSec(seg.end_sec)}</div>` +
+    `<div class="caption-card-body">Generating memory...</div>`;
+  feedBody.appendChild(card);
+  feedBody.scrollTop = feedBody.scrollHeight;
+}
+
+function formatCaptionHtml(rawText) {
+  const fields = [
+    { key: 'SCENE',    cssClass: '',               label: 'Scene'    },
+    { key: 'PEOPLE',   cssClass: 'people-label',    label: 'People'   },
+    { key: 'ACTIONS',  cssClass: 'actions-label',   label: 'Actions'  },
+    { key: 'DIALOGUE', cssClass: 'dialogue-label',  label: 'Dialogue' },
+    { key: 'SOUNDS',   cssClass: 'sounds-label',    label: 'Sounds'   },
+    { key: 'TEXT',     cssClass: 'text-label',      label: 'Text'     },
+    { key: 'OBJECTS',  cssClass: 'objects-label',   label: 'Objects'  },
+    { key: 'EMOTION',  cssClass: 'emotion-label',   label: 'Emotion'  },
+    { key: 'TEMPORAL', cssClass: 'temporal-label',  label: 'Temporal' },
+  ];
+
+  // Build a lookahead pattern that stops at any known field keyword
+  const allKeys = fields.map(f => f.key).join('|');
+  const lookahead = `(?=(?:${allKeys})\\s*[:：]|$)`;
+
+  let html = '';
+  for (const field of fields) {
+    const re = new RegExp(`(?:${field.key})\\s*[:：]\\s*([\\s\\S]*?)${lookahead}`, 'i');
+    const m = rawText.match(re);
+    if (m && m[1].trim()) {
+      const labelClass = 'caption-section-label' + (field.cssClass ? ` ${field.cssClass}` : '');
+      const rendered = renderMarkdownSimple(m[1].trim());
+      html += `<div class="caption-section"><span class="${labelClass}">${field.label}</span>${rendered}</div>`;
+    }
+  }
+
+  if (!html) {
+    html = `<div class="caption-section">${renderMarkdownSimple(rawText)}</div>`;
+  }
+  return html;
+}
+
+// 专用于“历史视频 Memory Feed”的版本：
+// 保留原有 SCENE/PEOPLE/... 分段 UI，仅对每个字段内容做简单 Markdown 渲染。
+function formatCaptionHtmlWithMarkdown(rawText) {
+  const fields = [
+    { key: 'SCENE',    cssClass: '',               label: 'Scene'    },
+    { key: 'PEOPLE',   cssClass: 'people-label',    label: 'People'   },
+    { key: 'ACTIONS',  cssClass: 'actions-label',   label: 'Actions'  },
+    { key: 'DIALOGUE', cssClass: 'dialogue-label',  label: 'Dialogue' },
+    { key: 'SOUNDS',   cssClass: 'sounds-label',    label: 'Sounds'   },
+    { key: 'TEXT',     cssClass: 'text-label',      label: 'Text'     },
+    { key: 'OBJECTS',  cssClass: 'objects-label',   label: 'Objects'  },
+    { key: 'EMOTION',  cssClass: 'emotion-label',   label: 'Emotion'  },
+    { key: 'TEMPORAL', cssClass: 'temporal-label',  label: 'Temporal' },
+  ];
+
+  const allKeys = fields.map(f => f.key).join('|');
+  const lookahead = `(?=(?:${allKeys})\\s*[:：]|$)`;
+
+  let html = '';
+  for (const field of fields) {
+    const re = new RegExp(`(?:${field.key})\\s*[:：]\\s*([\\s\\S]*?)${lookahead}`, 'i');
+    const m = rawText.match(re);
+    if (m && m[1].trim()) {
+      const labelClass = 'caption-section-label' + (field.cssClass ? ` ${field.cssClass}` : '');
+      const rendered = renderMarkdownSimple(m[1].trim());
+      html += `<div class="caption-section"><span class="${labelClass}">${field.label}</span>${rendered}</div>`;
+    }
+  }
+
+  if (!html) {
+    html = `<div class="caption-section">${renderMarkdownSimple(rawText)}</div>`;
+  }
+  return html;
+}
+
+function showIngestCaptionCard(index, start_sec, end_sec, text, replaceExisting) {
+  const feedBody = document.getElementById('ingest-feed-body');
+  const existing = document.getElementById(`cap-card-${index}`);
+
+  const segNum = index + 1;
+  const total  = ingestSegments.length;
+
+  const card = document.createElement('div');
+  card.className = 'caption-card';
+  card.id        = `cap-card-${index}`;
+  card.innerHTML =
+    `<div class="caption-card-ts">Segment ${segNum}/${total}  ${fmtSec(start_sec)} - ${fmtSec(end_sec)}</div>` +
+    `<div class="caption-card-body">${formatCaptionHtml(text)}</div>` +
+    `<div class="memory-created-label">Memory saved</div>`;
+
+  if (existing) {
+    existing.replaceWith(card);
+  } else {
+    feedBody.appendChild(card);
+  }
+  feedBody.scrollTop = feedBody.scrollHeight;
+}
+
+function escapeHtml(text) {
+  return (text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function renderMarkdownSimple(text) {
+  if (!text) return '';
+
+  // Escape HTML first
+  let escaped = escapeHtml(text);
+
+  // Inline code: `code`
+  escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Bold: **text**
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Italic: *text*
+  escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+  const lines = escaped.split(/\r?\n/);
+  let html = '';
+  const listBuffer = [];
+
+  for (const line of lines) {
+    const m = line.match(/^\s*[-*]\s+(.*)$/);
+    if (m) {
+      listBuffer.push(m[1]);
+    } else {
+      if (listBuffer.length > 0) {
+        html += listBuffer.join(' ');
+        listBuffer.length = 0;
+      }
+      if (line.trim()) {
+        html += `<p>${line}</p>`;
+      } else {
+        html += '<br>';
+      }
+    }
+  }
+  if (listBuffer.length > 0) {
+    html += listBuffer.join(' ');
+  }
+
+  // 如果整体只是一个单独的段落 <p>...</p>，则去掉外层 <p> 包装，
+  // 这样在 SCENE / PEOPLE / ACTIONS 等标签后就不会多出一行。
+  const trimmed = html.trim();
+  const mSingleP = trimmed.match(/^<p>([\s\S]*)<\/p>$/);
+  if (mSingleP) {
+    return mSingleP[1];
+  }
+
+  return html;
+}
+
+// ── Custom video controls ─────────────────────────────────────────────────────
+
+const videoPlayBtn    = document.getElementById('video-play-btn');
+const videoMuteBtn    = document.getElementById('video-mute-btn');
+const videoProgressBar = document.getElementById('video-progress-bar');
+const videoFill       = document.getElementById('video-progress-fill');
+const videoTimeEl     = document.getElementById('video-time');
+
+function videoTogglePlay() {
+  if (video.paused) {
+    video.play().catch(() => {});
+  } else {
+    video.pause();
+  }
+}
+
+function videoToggleMute() {
+  video.muted = !video.muted;
+  videoMuteBtn.innerHTML = video.muted
+    ? '<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>'
+    : '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+  videoMuteBtn.classList.toggle('muted', video.muted);
+}
+
+function videoSeek(e) {
+  const dur = video.duration;
+  if (!isFinite(dur) || dur <= 0) return;
+  const rect = videoProgressBar.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  video.currentTime = ratio * dur;
+}
+
+function updateVideoProgress() {
+  const cur = video.currentTime;
+  const dur = video.duration;
+  if (!isFinite(dur) || dur <= 0) return;
+  videoFill.style.width = ((cur / dur) * 100) + '%';
+  videoTimeEl.textContent = fmtSec(cur) + ' / ' + fmtSec(dur);
+}
+
+video.addEventListener('timeupdate', updateVideoProgress);
+const playSvg = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+const pauseSvg = '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>';
+video.addEventListener('ended', () => { videoPlayBtn.innerHTML = playSvg; });
+video.addEventListener('pause', () => { videoPlayBtn.innerHTML = playSvg; });
+video.addEventListener('play',  () => { videoPlayBtn.innerHTML = pauseSvg; });
+
+// ── Right-column tab switching ────────────────────────────────────────────────
+
+let activeTab = 'scene';
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.getElementById('scene-tab-content').style.display        = tab === 'scene'        ? 'flex' : 'none';
+  document.getElementById('qa-tab-content').style.display           = tab === 'qa'           ? 'flex' : 'none';
+  document.getElementById('relationship-tab-content').style.display = tab === 'relationship' ? 'flex' : 'none';
+  document.getElementById('tab-scene-btn').classList.toggle('active', tab === 'scene');
+  document.getElementById('tab-qa-btn').classList.toggle('active', tab === 'qa');
+  document.getElementById('tab-rel-btn').classList.toggle('active', tab === 'relationship');
+
+  if (tab === 'relationship') {
+    if (!graphData) {
+      graphShowLoading();
+      graphLoad();
+    } else if (!graphRendered) {
+      graphRender();
+    }
+  }
+}
+
+// ── Q&A panel ────────────────────────────────────────────────────────────────
+
+const qaMessages = document.getElementById('qa-messages');
+const qaInput    = document.getElementById('qa-question');
+const qaSendBtn  = document.getElementById('qa-send-btn');
+
+let qaHighlights    = [];    // [{startSec, endSec}] from last answer
+let qaActive        = false; // true while a QA request is in flight
+let qaVideoDuration = null;  // video duration in seconds from backend (or frontend fallback)
+
+// Parse a M:SS or H:MM:SS timecode string to seconds
+function parseTimecodeToSec(tc) {
+  const parts = tc.split(':');
+  if (parts.length === 3) {
+    return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+  }
+  return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+}
+
+// Format seconds as M:SS or H:MM:SS
+function secToTimecode(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+// Enable Q&A input and tab button (called after ingest completes or skip)
+function enableQAInput() {
+  qaInput.disabled    = false;
+  qaInput.placeholder = 'Ask anything about the video…';
+  qaSendBtn.disabled  = false;
+  document.getElementById('tab-qa-btn').disabled = false;
+  document.getElementById('qa-scope-toggle').classList.remove('disabled');
+  // Start polling for graph build status
+  graphStartPolling();
+}
+
+// Render yellow highlight blocks on the video progress bar
+function qaRenderHighlights() {
+  videoProgressBar.querySelectorAll('.qa-highlight').forEach(el => el.remove());
+  const dur = video.duration;
+  if (!isFinite(dur) || dur <= 0 || qaHighlights.length === 0) return;
+  for (const { startSec, endSec } of qaHighlights) {
+    const clampedStart = Math.max(0, Math.min(startSec, dur));
+    const clampedEnd   = Math.max(clampedStart, Math.min(endSec, dur));
+    const leftPct  = (clampedStart / dur) * 100;
+    const widthPct = Math.max(0.5, ((clampedEnd - clampedStart) / dur) * 100);
+    // Clamp so left + width never exceeds 100%
+    const safePct  = Math.min(widthPct, 100 - leftPct);
+    const span = document.createElement('div');
+    span.className = 'qa-highlight';
+    span.style.left  = leftPct + '%';
+    span.style.width = safePct + '%';
+    videoProgressBar.appendChild(span);
+  }
+}
+
+// In All Videos mode, remove all timestamp citations from text (belt-and-suspenders with backend).
+function stripAllTimestampsForDisplay(text) {
+  if (!text) return text;
+  // Range: [Video 0:06 - 0:11], [Episode analysis 1:30 - 2:00], H:MM:SS
+  let out = text.replace(
+    /\[(?:Video|Episode)(?:\s+analysis)?\s+\d{1,2}:\d{2}(?::\d{2})?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?\]/gi,
+    ''
+  );
+  // Single: [Video 0:06], [Episode 1:30]
+  out = out.replace(
+    /\[(?:Video|Episode)(?:\s+analysis)?\s+\d{1,2}:\d{2}(?::\d{2})?\]/gi,
+    ''
+  );
+  return out.replace(/\s{2,}/g, ' ').trim();
+}
+
+// Parse timestamps from answer text — only the canonical bracket format:
+//   [Video M:SS - N:SS]  /  [Episode M:SS - N:SS]  (also H:MM:SS for long videos)
+// Applies videoDuration validation: startSec >= duration → skip; endSec > duration → clamp.
+// Loose plain-text patterns are intentionally excluded to avoid false highlights.
+function parseTimestamps(text) {
+  const results = [];
+  const seen = new Set();
+  const dur = qaVideoDuration;
+
+  const bracketRe = /\[(?:Video|Episode)(?:\s+analysis)?\s+(\d+:\d{2}(?::\d{2})?)\s*-\s*(\d+:\d{2}(?::\d{2})?)\]/gi;
+  let m;
+  while ((m = bracketRe.exec(text)) !== null) {
+    let startSec = Math.max(0, parseTimecodeToSec(m[1]));
+    let endSec   = parseTimecodeToSec(m[2]);
+    // Drop if start exceeds video duration
+    if (dur !== null && startSec >= dur) continue;
+    // Clamp end to video duration
+    if (dur !== null && endSec > dur) endSec = dur;
+    const key = `${startSec.toFixed(2)},${endSec.toFixed(2)}`;
+    if (!seen.has(key)) { seen.add(key); results.push({ startSec, endSec }); }
+  }
+
+  return results;
+}
+
+// Render basic markdown in HTML-escaped text.
+// Runs AFTER renderAnswerWithLinks so timestamp <span> tags are preserved.
+function renderMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')  // **bold**
+    .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')          // *italic*
+    .replace(/\n\n/g, '<br><br>')                        // paragraph breaks
+    .replace(/\n/g, '<br>');                             // line breaks
+}
+
+// Make timestamp bracket tags clickable in the rendered answer.
+// Applies videoDuration validation: startSec >= duration → remove tag entirely;
+// endSec > duration → clamp end to duration.
+function renderAnswerWithLinks(text) {
+  const dur = qaVideoDuration;
+  return text.replace(
+    /\[(?:Video|Episode)(?:\s+analysis)?\s+(\d+:\d{2}(?::\d{2})?)\s*-\s*(\d+:\d{2}(?::\d{2})?)\]/gi,
+    (match, sTs, eTs) => {
+      let startSec = parseTimecodeToSec(sTs);
+      let endSec   = parseTimecodeToSec(eTs);
+      // Remove entire tag if start exceeds video duration
+      if (dur !== null && startSec >= dur) return '';
+      // Clamp end to video duration
+      if (dur !== null && endSec > dur) endSec = dur;
+      const label = `[Video ${secToTimecode(startSec)} - ${secToTimecode(endSec)}]`;
+      return `<span class="qa-ts-link" onclick="qaJumpTo(${startSec})">${label}</span>`;
+    }
+  );
+}
+
+// Jump the video to a specific time
+function qaJumpTo(sec) {
+  if (video.readyState >= 1) {
+    video.currentTime = sec;
+    video.play().catch(() => {});
+  }
+}
+
+// Submit question on Enter (Shift+Enter for newline)
+function setQAScope(scope) {
+  qaSearchScope = scope;
+  document.getElementById('scope-btn-current').classList.toggle('active', scope === 'current');
+  document.getElementById('scope-btn-all').classList.toggle('active', scope === 'all');
+}
+
+function ingestNewVideo() {
+  // Full UI state reset — no page reload
+  cancelAnalyze();
+  if (ingestReader) { try { ingestReader.cancel(); } catch (_) {} ingestReader = null; }
+
+  // Stop video and remove listeners
+  video.pause();
+  video.removeEventListener('timeupdate', onVideoTimeUpdate);
+  video.removeEventListener('seeked', onVideoSeeked);
+  video.removeEventListener('timeupdate', onIngestTimeUpdate);
+  video.src = '';
+  video.load();
+
+  // Reset all ingest/playback state
+  subtitleCues = []; memoryCues = []; speechCues = []; segmentCues = [];
+  uploadedVideoUrl = null;
+  ingestSegments = []; ingestCaptionsDone = {}; ingestCurrentSeg = 0;
+  ingestWaiting = false; ingestSyncActive = false;
+  ingestShownCardFor = new Set(); lastHighlightedSegIndex = -1;
+  liveOn = false; analyzing = false; lastQueryBucket = -1;
+  liveDialogueFallback = ''; descProtected = false;
+  segEstimatedTotal = 0; segDoneCount = 0;
+  asrEstimatedTotal = 0; asrDoneCount = 0;
+  qaHighlights = []; qaVideoDuration = null;
+
+  // Reset buttons & status
+  btnStart.disabled = true; btnStart.textContent = '▶ Play';
+  btnLive.textContent = 'Live analysis: OFF'; btnLive.classList.add('off');
+  statusEl.textContent = 'Upload a video to begin.';
+
+  // Reset phase visibility
+  document.getElementById('upload-phase').style.display  = 'flex';
+  document.getElementById('ingest-phase').style.display  = 'none';
+  document.getElementById('ingest-phase').classList.remove('compact');
+  document.getElementById('video-phase').style.display   = 'none';
+
+  // Reset upload UI
+  document.getElementById('drop-zone').style.display       = 'block';
+  document.getElementById('upload-progress').style.display = 'none';
+  document.getElementById('upload-error').style.display    = 'none';
+  document.getElementById('file-input').value              = '';
+
+  // Reset ingest phase UI
+  document.getElementById('ingest-log').innerHTML      = '';
+  document.getElementById('ingest-log').style.display  = '';
+  document.getElementById('seg-progress-ui').style.display = 'none';
+  document.getElementById('asr-progress-ui').style.display = 'none';
+  setProgress(0); setStep('Starting...');
+
+  // Reset live panel
+  document.getElementById('live-panel').style.display = 'none';
+
+  // Reset memory feed
+  document.getElementById('ingest-feed').style.display  = 'none';
+  document.getElementById('ingest-feed-body').innerHTML = '';
+  document.getElementById('ingest-feed-title').textContent = 'Memory Feed - Processing Segments';
+
+  // Reset subtitle overlay
+  setSubtitleOverlay('');
+
+  // Reset right column
+  document.getElementById('tab-qa-btn').disabled = true;
+  document.getElementById('tab-rel-btn').disabled = true;
+  document.getElementById('qa-scope-toggle').classList.add('disabled');
+  qaInput.disabled = true;
+  qaInput.placeholder = 'Waiting until memories ingested…';
+  qaSendBtn.disabled = true;
+  document.getElementById('qa-messages').innerHTML = '';
+  qaRenderHighlights();
+
+  // Reset graph
+  graphData = null; graphRendered = false;
+  if (graphPoller) { clearInterval(graphPoller); graphPoller = null; }
+  d3.select('#relationship-graph').selectAll('*').remove();
+  document.getElementById('graph-legend').innerHTML = '';
+  graphCloseDetails();
+
+  // Switch to scene tab
+  switchTab('scene');
+
+  // Show history strip immediately (with existing completed videos)
+  loadVideoHistory();
+}
+
+// ── Video history strip ───────────────────────────────────────────────────
+
+async function loadVideoHistory() {
+  try {
+    const res = await fetch('/videos');
+    if (!res.ok) return;
+    videoHistory = await res.json();
+  } catch (_) {}
+  renderVideoHistory();
+}
+
+function renderVideoHistory() {
+  const strip = document.getElementById('video-history-strip');
+  if (videoHistory.length === 0) {
+    strip.style.display = 'none';
+    return;
+  }
+
+  strip.style.display = 'flex';
+
+  // Rebuild thumb items (keep the label, replace thumbs)
+  const existing = Array.from(strip.querySelectorAll('.history-thumb'));
+  const rendered = new Set(existing.map(el => el.dataset.groupId));
+  const needed   = new Set(videoHistory.map(v => v.group_id));
+
+  // Remove stale
+  existing.forEach(el => { if (!needed.has(el.dataset.groupId)) el.remove(); });
+
+  // Add / update
+  videoHistory.forEach(v => {
+    let thumb = strip.querySelector(`.history-thumb[data-group-id="${v.group_id}"]`);
+    if (!thumb) {
+      thumb = document.createElement('div');
+      thumb.className   = 'history-thumb';
+      thumb.dataset.groupId = v.group_id;
+      thumb.title = v.filename;
+
+      const img = document.createElement('img');
+      img.src = `/videos/${v.group_id}/thumbnail?t=${Date.now()}`;
+      img.alt = v.filename;
+      img.onerror = () => {
+        img.replaceWith(Object.assign(document.createElement('div'), {
+          className: 'history-thumb-placeholder', textContent: '🎬'
+        }));
+      };
+      thumb.appendChild(img);
+      thumb.addEventListener('click', () => switchToVideo(v));
+      strip.appendChild(thumb);
+    }
+
+    // Update active/disabled state
+    thumb.classList.toggle('active',   v.group_id === currentGroupId);
+    thumb.classList.toggle('disabled', ingestInProgress);
+  });
+}
+
+async function switchToVideo(videoInfo) {
+  if (ingestInProgress) return;
+
+  // Stop live analysis
+  cancelAnalyze();
+  if (liveOn) {
+    liveOn = false;
+    btnLive.textContent = 'Live analysis: OFF';
+    btnLive.classList.add('off');
+  }
+
+  // Switch active video on the server
+  try {
+    const res = await fetch('/switch_video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: videoInfo.group_id }),
+    });
+    if (!res.ok) { console.error('[history] switch_video failed'); return; }
+  } catch (e) { console.error('[history] switch_video error:', e); return; }
+
+  currentGroupId = videoInfo.group_id;
+
+  // Detach old video listeners
+  video.removeEventListener('timeupdate', onVideoTimeUpdate);
+  video.removeEventListener('seeked', onVideoSeeked);
+  video.removeEventListener('timeupdate', onIngestTimeUpdate);
+  ingestSyncActive = false; ingestWaiting = false;
+
+  // Load new video
+  video.pause();
+  video.src = videoInfo.video_url;
+  video.load();
+  uploadedVideoUrl = videoInfo.video_url;
+
+  // Reset playback state
+  subtitleCues = []; memoryCues = []; speechCues = []; segmentCues = [];
+  ingestSegments = []; ingestCaptionsDone = {}; ingestCurrentSeg = 0;
+  ingestShownCardFor = new Set(); lastHighlightedSegIndex = -1;
+  liveDialogueFallback = ''; descProtected = false;
+  lastQueryBucket = -1; qaHighlights = []; qaVideoDuration = null;
+
+  // Show video phase
+  document.getElementById('upload-phase').style.display  = 'none';
+  document.getElementById('ingest-phase').style.display  = 'none';
+  document.getElementById('video-phase').style.display   = 'flex';
+
+  // Reset buttons
+  btnStart.disabled    = false;
+  btnStart.textContent = '▶ Play';
+  statusEl.textContent = 'Ready. Click "Play".';
+
+  // Update header badge
+  const badge = document.getElementById('video-badge');
+  badge.textContent  = videoInfo.filename;
+  badge.style.display = 'inline';
+
+  // Clear QA
+  document.getElementById('qa-messages').innerHTML = '';
+  qaRenderHighlights();
+  setSubtitleOverlay('');
+
+  // Reset graph state and reload for this video
+  graphData = null; graphRendered = false;
+  graphViewMode = 'this';
+  document.getElementById('graph-scope-this').classList.add('active');
+  document.getElementById('graph-scope-all').classList.remove('active');
+  if (graphPoller) { clearInterval(graphPoller); graphPoller = null; }
+  if (graphAllPoller) { clearInterval(graphAllPoller); graphAllPoller = null; }
+  d3.select('#relationship-graph').selectAll('*').remove();
+  document.getElementById('graph-legend').innerHTML = '';
+  graphCloseDetails();
+
+  // Load cues then populate memory feed
+  await loadAllCues();
+  populateMemoryFeedFromCues();
+
+  // Show memory feed
+  document.getElementById('live-panel').style.display = 'none';
+  document.getElementById('ingest-feed').style.display = 'flex';
+  document.getElementById('ingest-feed-title').textContent = 'Memories';
+
+  // Enable Q&A and start graph polling
+  enableQAInput();
+
+  // Switch to scene tab
+  switchTab('scene');
+
+  // Update strip highlight
+  renderVideoHistory();
+
+  // Attach playback listeners
+  video.addEventListener('timeupdate', onVideoTimeUpdate);
+  video.addEventListener('seeked', onVideoSeeked);
+}
+
+function populateMemoryFeedFromCues() {
+  const feedBody = document.getElementById('ingest-feed-body');
+  feedBody.innerHTML = '';
+  ingestSegments = [];
+
+  // Prefer full raw content (segmentCues from /segment_cues).
+  // Fall back to memoryCues (parsed scene+dialogue) if not available.
+  const source = segmentCues.length > 0 ? segmentCues : memoryCues;
+  if (source.length === 0) return;
+
+  const total = source.length;
+  source.forEach((cue, i) => {
+    // 只在历史 Memory Feed 中显示 segment 级记忆：
+    // 带 [Episode ...] 前缀的内容会被过滤掉。
+    const isEpisode = segmentCues.length > 0
+      ? ((cue.content || '').trim().startsWith('[Episode'))
+      : (
+          (cue.scene && cue.scene.trim().startsWith('[Episode')) ||
+          (cue.dialogue && cue.dialogue.trim().startsWith('[Episode'))
+        );
+    if (isEpisode) {
+      return;
+    }
+
+    // Build ingestSegments so highlightCurrentSegment() works during playback
+    ingestSegments.push({ index: i, start_sec: cue.start, end_sec: cue.end });
+
+    let bodyHtml;
+    if (segmentCues.length > 0) {
+      // 历史视频：保留原有分段 UI，对字段内容做简单 Markdown 渲染
+      bodyHtml = formatCaptionHtmlWithMarkdown(cue.content || '');
+    } else {
+      // Fallback: only scene + dialogue available
+      bodyHtml = '';
+      if (cue.scene) {
+        bodyHtml += `<div class="caption-section"><span class="caption-section-label">Scene</span>${renderMarkdownSimple(cue.scene)}</div>`;
+      }
+      if (cue.dialogue) {
+        bodyHtml += `<div class="caption-section"><span class="caption-section-label dialogue-label">Dialogue</span>${renderMarkdownSimple(cue.dialogue)}</div>`;
+      }
+      if (!bodyHtml) {
+        bodyHtml  = `<div class="caption-section">${renderMarkdownSimple(cue.scene || '—')}</div>`;
+      }
+    }
+
+    const card = document.createElement('div');
+    card.className = 'caption-card';
+    card.id        = `cap-card-${i}`;
+    card.innerHTML =
+      `<div class="caption-card-ts">Segment ${i + 1}/${total}  ${fmtSec(cue.start)} - ${fmtSec(cue.end)}</div>` +
+      `<div class="caption-card-body">${bodyHtml}</div>`;
+    feedBody.appendChild(card);
+  });
+}
+
+function autoResizeQA() {
+  qaInput.style.height = 'auto';
+  qaInput.style.height = qaInput.scrollHeight + 'px';
+}
+
+function qaKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    submitQA();
+  }
+}
+
+async function submitQA() {
+  const question = qaInput.value.trim();
+  if (!question || qaActive) return;
+
+  qaInput.value = '';
+  autoResizeQA();
+  qaActive = true;
+  qaInput.disabled  = true;
+  qaSendBtn.disabled = true;
+
+  // Append question bubble
+  const qBubble = document.createElement('div');
+  qBubble.className = 'qa-msg-question';
+  qBubble.textContent = question;
+  qaMessages.appendChild(qBubble);
+
+  // Append answer bubble (empty, will fill as stream arrives)
+  const aBubble = document.createElement('div');
+  aBubble.className = 'qa-msg-answer';
+
+  const stepsDiv = document.createElement('div');
+  stepsDiv.className = 'qa-steps';
+
+  const stepsToggle = document.createElement('div');
+  stepsToggle.className = 'qa-steps-toggle';
+
+  const stepsList = document.createElement('div');
+  stepsList.className = 'qa-steps-list';
+
+  stepsDiv.appendChild(stepsToggle);
+  stepsDiv.appendChild(stepsList);
+
+  const answerText = document.createElement('div');
+  answerText.className = 'qa-answer-text';
+  answerText.textContent = '⋯';
+
+  aBubble.appendChild(stepsDiv);
+  aBubble.appendChild(answerText);
+  qaMessages.appendChild(aBubble);
+  qaMessages.scrollTop = qaMessages.scrollHeight;
+
+  qaInput.value = '';
+
+  // Clear old highlights and reset duration
+  qaHighlights    = [];
+  qaVideoDuration = null;
+  qaRenderHighlights();
+
+  let stepCount = 0;
+  let fullAnswer = '';
+  let answerStarted = false;
+
+  try {
+    const res = await fetch('/qa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, search_scope: qaSearchScope }),
+    });
+
+    if (!res.ok) {
+      answerText.textContent = `[HTTP ${res.status}] /qa request failed`;
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith('data:')) continue;
+        let msg;
+        try { msg = JSON.parse(t.slice(5).trim()); } catch { continue; }
+
+        if (msg.step) {
+          // Add intermediate step
+          stepCount++;
+          const item = document.createElement('div');
+          item.className = 'qa-step-item';
+          item.textContent = msg.step;
+          stepsList.appendChild(item);
+          qaMessages.scrollTop = qaMessages.scrollHeight;
+        }
+
+        if (msg.text !== undefined) {
+          if (!answerStarted) {
+            answerStarted = true;
+            answerText.textContent = '';
+            // Show steps collapse toggle
+            if (stepCount > 0) {
+              stepsToggle.style.display = 'block';
+              stepsToggle.textContent = `▾ ${stepCount} step${stepCount > 1 ? 's' : ''}`;
+              stepsToggle.onclick = () => {
+                stepsDiv.classList.toggle('collapsed');
+                const collapsed = stepsDiv.classList.contains('collapsed');
+                stepsToggle.textContent = `${collapsed ? '▸' : '▾'} ${stepCount} step${stepCount > 1 ? 's' : ''}`;
+              };
+            }
+          }
+          fullAnswer += msg.text;
+          answerText.textContent = fullAnswer;
+          qaMessages.scrollTop = qaMessages.scrollHeight;
+        }
+
+        if (msg.done) {
+          // Collapse steps
+          if (stepCount > 0) {
+            stepsDiv.classList.add('collapsed');
+            stepsToggle.textContent = `▸ ${stepCount} step${stepCount > 1 ? 's' : ''}`;
+            stepsToggle.style.display = 'block';
+          }
+
+          // Resolve video duration: prefer backend value, fall back to frontend video element
+          if (msg.videoDuration != null) {
+            qaVideoDuration = msg.videoDuration;
+          } else if (isFinite(video.duration) && video.duration > 0) {
+            qaVideoDuration = video.duration;
+          } else {
+            qaVideoDuration = null;
+          }
+
+          // In All Videos mode, strip all timestamps from display (no links/highlights/jump)
+          const textToRender = (qaSearchScope === 'all') ? stripAllTimestampsForDisplay(fullAnswer) : fullAnswer;
+          const escaped = textToRender
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          answerText.innerHTML = renderMarkdown(renderAnswerWithLinks(escaped));
+
+          // Only highlight timestamps when in This Video mode
+          const allTimestamps = (qaSearchScope === 'all') ? [] : parseTimestamps(fullAnswer);
+          allTimestamps.sort((a, b) => a.startSec - b.startSec);
+
+          if (allTimestamps.length > 0) {
+            qaHighlights = allTimestamps;
+            // Wait for video metadata (duration) if not yet loaded
+            const applyHighlights = () => {
+              qaRenderHighlights();
+              // Jump to first timestamp
+              qaJumpTo(allTimestamps[0].startSec);
+            };
+            if (isFinite(video.duration) && video.duration > 0) {
+              applyHighlights();
+            } else {
+              video.addEventListener('loadedmetadata', applyHighlights, { once: true });
+            }
+          }
+
+          qaMessages.scrollTop = qaMessages.scrollHeight;
+        }
+      }
+    }
+  } catch (e) {
+    answerText.textContent = 'Error: ' + e.message;
+  } finally {
+    qaActive = false;
+    qaInput.disabled  = false;
+    qaSendBtn.disabled = false;
+    qaInput.focus();
+  }
+}
+
+// ── Relationship Graph ────────────────────────────────────────────────────────
+
+let graphData       = null;   // {nodes, edges, color_map}
+let graphRendered   = false;
+let graphShowLabels = true;
+let graphPoller     = null;
+let graphAllPoller  = null;
+let graphViewMode   = 'this'; // 'this' | 'all'
+
+// D3 selection handles (kept for highlight/reset)
+let _gEdges      = null;
+let _gEdgeLabels = null;
+let _gNodes      = null;
+let _gNodeLabels = null;
+
+function graphStartPolling() {
+  if (graphPoller) return;
+  graphPoller = setInterval(async () => {
+    try {
+      const r = await fetch('/graph/status');
+      const d = await r.json();
+      if (d.status === 'ready') {
+        clearInterval(graphPoller);
+        graphPoller = null;
+        document.getElementById('tab-rel-btn').disabled = false;
+        // If user already opened the tab, load immediately
+        if (activeTab === 'relationship') {
+          graphShowLoading();
+          graphLoad();
+        }
+      } else if (d.status === 'error') {
+        clearInterval(graphPoller);
+        graphPoller = null;
+        console.warn('[graph] Graph build failed on server');
+      }
+    } catch (_) {}
+  }, 3000);
+}
+
+function graphSetScope(mode) {
+  if (graphViewMode === mode) return;
+  graphViewMode = mode;
+  document.getElementById('graph-scope-this').classList.toggle('active', mode === 'this');
+  document.getElementById('graph-scope-all').classList.toggle('active', mode === 'all');
+  // Reset rendered graph and load the appropriate graph
+  graphData = null; graphRendered = false;
+  d3.select('#relationship-graph').selectAll('*').remove();
+  document.getElementById('graph-legend').innerHTML = '';
+  graphCloseDetails();
+  if (mode === 'all') {
+    graphAllStartPolling();
+  } else {
+    graphShowLoading();
+    graphLoad();
+  }
+}
+
+function graphAllStartPolling() {
+  if (graphAllPoller) return;
+  // Kick off status check immediately, then poll
+  (async () => {
+    try {
+      const r = await fetch('/graph/all/status');
+      const d = await r.json();
+      if (d.status === 'ready') {
+        graphShowLoading();
+        graphLoad();
+        return;
+      }
+    } catch (_) {}
+    graphShowLoading();
+  })();
+  graphAllPoller = setInterval(async () => {
+    try {
+      const r = await fetch('/graph/all/status');
+      const d = await r.json();
+      if (d.status === 'ready') {
+        clearInterval(graphAllPoller);
+        graphAllPoller = null;
+        if (graphViewMode === 'all' && activeTab === 'relationship') {
+          graphShowLoading();
+          graphLoad();
+        }
+      } else if (d.status === 'error') {
+        clearInterval(graphAllPoller);
+        graphAllPoller = null;
+        console.warn('[graph] All-videos graph build failed');
+      }
+    } catch (_) {}
+  }, 3000);
+}
+
+function graphShowLoading() {
+  const container = document.getElementById('relationship-tab-content');
+  // Remove any previous loading indicator
+  const old = container.querySelector('.graph-loading');
+  if (old) old.remove();
+  const div = document.createElement('div');
+  div.className = 'graph-loading';
+  div.innerHTML = '<div class="spin-ring"></div>Building relationship graph…';
+  container.appendChild(div);
+}
+
+async function graphLoad() {
+  try {
+    const endpoint = graphViewMode === 'all' ? '/graph/all/data' : '/graph/data';
+    const r = await fetch(endpoint);
+    if (!r.ok) { console.warn('[graph] ' + endpoint + ' not ready'); return; }
+    graphData = await r.json();
+    // Remove loading indicator
+    const container = document.getElementById('relationship-tab-content');
+    const loading = container.querySelector('.graph-loading');
+    if (loading) loading.remove();
+    graphRender();
+  } catch (e) {
+    console.error('[graph] Load error:', e);
+  }
+}
+
+function graphRender() {
+  if (!graphData) return;
+  graphRendered = true;
+
+  const container = document.getElementById('relationship-tab-content');
+  const width  = container.clientWidth  || 600;
+  const height = container.clientHeight || 500;
+
+  const svgEl = document.getElementById('relationship-graph');
+  const svg = d3.select(svgEl)
+    .attr('width', width)
+    .attr('height', height);
+  svg.selectAll('*').remove();
+
+  // Arrow marker definition
+  const defs = svg.append('defs');
+  defs.append('marker')
+    .attr('id', 'graph-arrow')
+    .attr('viewBox', '0 -4 8 8')
+    .attr('refX', 22).attr('refY', 0)
+    .attr('orient', 'auto')
+    .attr('markerWidth', 6).attr('markerHeight', 6)
+    .append('path')
+    .attr('d', 'M0,-4L8,0L0,4')
+    .attr('fill', '#d1d1d6');
+
+  // Root group (zoom target)
+  const g = svg.append('g');
+
+  // Zoom + pan
+  svg.call(
+    d3.zoom()
+      .scaleExtent([0.1, 6])
+      .on('zoom', (event) => g.attr('transform', event.transform))
+  );
+
+  // Click on background → clear highlights
+  svg.on('click', () => { graphClearHighlight(); graphCloseDetails(); });
+
+  // Deep-copy nodes/edges so D3 can mutate them
+  const nodes = graphData.nodes.map(n => ({ ...n }));
+  const edges = graphData.edges.map(e => ({ ...e }));
+
+  // Force simulation
+  const simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(80))
+    .force('charge', d3.forceManyBody().strength(-250))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide(20));
+
+  // ── Edges ──
+  _gEdges = g.append('g').attr('class', 'edges-group')
+    .selectAll('line')
+    .data(edges)
+    .join('line')
+    .attr('class', 'graph-edge')
+    .attr('marker-end', 'url(#graph-arrow)');
+
+  // ── Edge labels ──
+  _gEdgeLabels = g.append('g').attr('class', 'edge-labels-group')
+    .selectAll('text')
+    .data(edges)
+    .join('text')
+    .attr('class', 'graph-edge-label')
+    .attr('text-anchor', 'middle')
+    .text(d => d.label || '')
+    .style('display', graphShowLabels ? null : 'none');
+
+  // ── Nodes ──
+  const colorMap = graphData.color_map || {};
+  const drag = d3.drag()
+    .on('start', (event, d) => {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x; d.fy = d.y;
+    })
+    .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+    .on('end', (event, d) => {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null; d.fy = null;
+    });
+
+  _gNodes = g.append('g').attr('class', 'nodes-group')
+    .selectAll('g')
+    .data(nodes)
+    .join('g')
+    .attr('class', 'graph-node')
+    .call(drag)
+    .on('click', (event, d) => {
+      event.stopPropagation();
+      graphHighlightNode(d, edges);
+      graphShowDetails(d);
+    });
+
+  _gNodes.append('circle')
+    .attr('r', 8)
+    .attr('fill', d => colorMap[d.type] || '#86868b')
+    .attr('stroke', '#fff')
+    .attr('stroke-width', 1.5);
+
+  // ── Node labels ──
+  _gNodeLabels = g.append('g').attr('class', 'node-labels-group')
+    .selectAll('text')
+    .data(nodes)
+    .join('text')
+    .attr('class', 'graph-node-label')
+    .attr('dx', 12).attr('dy', 4)
+    .text(d => d.name || d.id);
+
+  // ── Simulation tick ──
+  simulation.on('tick', () => {
+    _gEdges
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+
+    _gEdgeLabels
+      .attr('x', d => ((d.source.x || 0) + (d.target.x || 0)) / 2)
+      .attr('y', d => ((d.source.y || 0) + (d.target.y || 0)) / 2);
+
+    _gNodes.attr('transform', d => `translate(${d.x},${d.y})`);
+
+    _gNodeLabels
+      .attr('x', d => d.x || 0)
+      .attr('y', d => d.y || 0);
+  });
+
+  // ── Legend ──
+  graphRenderLegend(colorMap);
+}
+
+function graphRenderLegend(colorMap) {
+  const legend = document.getElementById('graph-legend');
+  legend.innerHTML = '<div class="legend-title">Entity Types</div>';
+  Object.entries(colorMap).forEach(([type, color]) => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="legend-dot" style="background:${color}"></span>${type}`;
+    legend.appendChild(item);
+  });
+}
+
+function graphHighlightNode(node, edges) {
+  if (!_gEdges || !_gNodes) return;
+
+  // Compute connected node IDs and edge set
+  const connectedNodeIds = new Set([node.id]);
+  const connectedEdges = new Set();
+
+  edges.forEach(e => {
+    const src = typeof e.source === 'object' ? e.source.id : e.source;
+    const tgt = typeof e.target === 'object' ? e.target.id : e.target;
+    if (src === node.id || tgt === node.id) {
+      connectedEdges.add(e);
+      connectedNodeIds.add(src);
+      connectedNodeIds.add(tgt);
+    }
+  });
+
+  _gEdges
+    .attr('class', e => connectedEdges.has(e) ? 'graph-edge highlighted' : 'graph-edge dimmed')
+    .attr('marker-end', e => connectedEdges.has(e) ? 'url(#graph-arrow-red)' : 'url(#graph-arrow)');
+  _gNodes.select('circle')
+    .attr('opacity', d => connectedNodeIds.has(d.id) ? 1 : 0.25);
+  _gNodeLabels
+    .attr('opacity', d => connectedNodeIds.has(d.id) ? 1 : 0.25);
+  _gEdgeLabels
+    .attr('opacity', e => connectedEdges.has(e) ? 1 : 0.15);
+
+  // Ensure a red arrow marker exists
+  const svg = d3.select('#relationship-graph');
+  if (svg.select('#graph-arrow-red').empty()) {
+    svg.select('defs').append('marker')
+      .attr('id', 'graph-arrow-red')
+      .attr('viewBox', '0 -4 8 8')
+      .attr('refX', 22).attr('refY', 0)
+      .attr('orient', 'auto')
+      .attr('markerWidth', 6).attr('markerHeight', 6)
+      .append('path')
+      .attr('d', 'M0,-4L8,0L0,4')
+      .attr('fill', '#ff3b30');
+  }
+}
+
+function graphClearHighlight() {
+  if (!_gEdges || !_gNodes) return;
+  _gEdges.attr('class', 'graph-edge').attr('marker-end', 'url(#graph-arrow)');
+  _gNodes.select('circle').attr('opacity', 1);
+  _gNodeLabels.attr('opacity', 1);
+  _gEdgeLabels.attr('opacity', 1);
+}
+
+function graphShowDetails(node) {
+  const panel = document.getElementById('node-details-panel');
+  panel.style.display = 'block';
+
+  // Tint header band with a soft wash of the node's colour
+  const nodeColor = (graphData.color_map || {})[node.type] || '#86868b';
+  const headerBand = document.getElementById('node-details-header-band');
+  const hx = nodeColor.replace('#','');
+  const r = parseInt(hx.slice(0,2),16), g = parseInt(hx.slice(2,4),16), b = parseInt(hx.slice(4,6),16);
+  headerBand.style.background = `linear-gradient(135deg, rgba(${r},${g},${b},0.11) 0%, rgba(${r},${g},${b},0.04) 100%)`;
+
+  const badge = document.getElementById('node-type-badge');
+  badge.textContent = node.type || '';
+  badge.style.background = nodeColor;
+
+  document.getElementById('node-details-name').textContent = node.name || node.id;
+  document.getElementById('node-details-desc').textContent = node.description || '';
+
+  const tsContainer = document.getElementById('node-details-timestamps');
+  const tsLabel     = document.getElementById('node-ts-label');
+  const tsDivider   = document.getElementById('node-ts-divider');
+  tsContainer.innerHTML = '';
+  const timestamps = node.timestamps || [];
+  const hasTs = timestamps.length > 0;
+  tsLabel.style.display   = hasTs ? '' : 'none';
+  tsDivider.style.display = hasTs ? '' : 'none';
+  timestamps.forEach(ts => {
+    const chip = document.createElement('button');
+    chip.className = 'node-ts-chip';
+    chip.innerHTML = `<svg width="6" height="8" viewBox="0 0 6 8" fill="currentColor" style="flex-shrink:0"><path d="M0.5 0.5l5 3.5-5 3.5z"/></svg>${ts.label}`;
+    chip.onclick = () => graphJumpTo(ts.start_sec);
+    tsContainer.appendChild(chip);
+  });
+}
+
+function graphCloseDetails() {
+  document.getElementById('node-details-panel').style.display = 'none';
+}
+
+function graphToggleEdgeLabels(checked) {
+  graphShowLabels = checked;
+  if (_gEdgeLabels) _gEdgeLabels.style('display', checked ? null : 'none');
+}
+
+function graphJumpTo(sec) {
+  if (video.readyState >= 1) {
+    video.currentTime = sec;
+    video.play().catch(() => {});
+    // Switch to scene tab so user can watch
+    switchTab('scene');
+  }
+}
+
+// ── Memory feed segment highlight & scroll ───────────────────────────────────
+function highlightCurrentSegment(ts) {
+  let activeIndex = -1;
+  for (const seg of ingestSegments) {
+    if (ts >= seg.start_sec && ts <= seg.end_sec) {
+      activeIndex = seg.index;
+      break;
+    }
+  }
+
+  if (activeIndex === lastHighlightedSegIndex) return;
+  lastHighlightedSegIndex = activeIndex;
+
+  document.querySelectorAll('#ingest-feed-body .caption-card').forEach(card => {
+    card.classList.remove('active');
+  });
+
+  if (activeIndex >= 0) {
+    const card = document.getElementById(`cap-card-${activeIndex}`);
+    if (card) {
+      card.classList.add('active');
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+}
+
+// ── UI helpers ──────────────────────────────────────────────────────────────
+function setPanel(id, text, ts) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className   = 'panel-body';
+  const tsEl = document.getElementById(id + '-ts');
+  if (tsEl && ts != null) {
+    const h = Math.floor(ts / 3600);
+    const m = Math.floor((ts % 3600) / 60);
+    const s = Math.floor(ts % 60);
+    const label = h > 0
+      ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+      : `${m}:${String(s).padStart(2,'0')}`;
+    tsEl.textContent = `Video time: ${label}`;
+  }
+}
+</script>
+
+</body>
+</html>
