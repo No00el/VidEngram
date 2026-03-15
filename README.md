@@ -77,9 +77,11 @@ Video Input
 
 2. **EverMemOS as the Memory Backbone** — All consolidated memories are stored in EverMemOS's native three-layer hierarchy (MemCell → Episode → Entity Profile). Retrieval combines BM25 keyword search, dense vector search, and LLM-guided reranking in a single hybrid (RRF) call — capabilities provided entirely by EverMemOS with no custom retrieval code needed.
 
-3. **Agentic ReAct Orchestrator** — The query agent *plans* which tools to use, *executes* searches and video analysis, *observes* results, and *iterates*. Six tools cover fast retrieval, profile lookup, multi-hop retrieval, speech search, video grounding, and timeline queries.
+3. **Memory-First Reasoning** — The design goal is that all reasoning over long videos — and across multiple videos — should rely entirely on EverMemOS's long-term memory, without re-analyzing the original video. EverMemOS natively supports cross-video retrieval, making multi-video reasoning an architectural property of the system rather than an afterthought.
 
-4. **Context Grounding** — When memory alone isn't enough, the agent extracts the specific video clip and re-analyzes it with Qwen2.5-Omni, verifying and enriching its answer with fresh multimodal evidence.
+4. **Agentic ReAct Orchestrator** — The query agent *plans* which tools to use, *executes* searches and video analysis, *observes* results, and *iterates*. Six tools cover fast retrieval, profile lookup, multi-hop retrieval, speech search, video grounding, and timeline queries.
+
+5. **Context Grounding** — When memory alone isn't enough, the agent extracts the specific video clip and re-analyzes it with Qwen2.5-Omni, verifying and enriching its answer with fresh multimodal evidence.
 
 ## Quick Start
 
