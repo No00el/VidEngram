@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="VidEngram: agentic long-term video understanding via structured hierarchical memory." />
+  <title>VidEngram: Agentic Long-Term Video Understanding</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2324292f'/%3E%3Cpath d='M18 18h28v6H18zm0 11h28v6H18zm0 11h18v6H18z' fill='%23fff'/%3E%3C/svg%3E" />
+  <style>
+    :root {
+      --ink: #171717;
+      --muted: #5f6368;
+      --line: #dfe3e8;
+      --paper: #ffffff;
+      --soft: #f6f8fa;
+      --blue: #1f6feb;
+      --green: #167a45;
+      --rose: #b42318;
+      --gold: #9a6700;
+      --shadow: 0 12px 30px rgba(16, 24, 40, 0.08);
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 56px 0 28px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #fbfcfe 0%, #ffffff 68%);
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--green);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 980px;
+      margin: 0 auto;
+      font-size: clamp(2rem, 4vw, 3.55rem);
+      line-height: 1.08;
+      font-weight: 780;
+      letter-spacing: 0;
+      text-align: center;
+    }
+
+    .subtitle {
+      max-width: 850px;
+      margin: 18px auto 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.8vw, 1.22rem);
+      text-align: center;
+    }
+
+    .authors {
+      max-width: 920px;
+      margin: 18px auto 0;
+      color: #30343a;
+      font-size: 1rem;
+      text-align: center;
+    }
+
+    .affiliation {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin: 28px auto 0;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 9px 16px;
+      border: 1px solid #24292f;
+      border-radius: 999px;
+      background: #24292f;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 650;
+      line-height: 1;
+      text-decoration: none;
+      transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .button:hover {
+      background: #111827;
+      border-color: #111827;
+      text-decoration: none;
+      transform: translateY(-1px);
+    }
+
+    .button.secondary {
+      background: #fff;
+      color: #24292f;
+      border-color: #c9d1d9;
+    }
+
+    .button.secondary:hover {
+      background: #f6f8fa;
+      border-color: #8c959f;
+    }
+
+    .teaser {
+      padding: 34px 0 22px;
+    }
+
+    .figure-shell {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .figure-shell img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .caption {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-align: center;
+    }
+
+    section {
+      padding: 34px 0;
+    }
+
+    .section-title {
+      margin: 0 0 16px;
+      font-size: clamp(1.45rem, 2.4vw, 2rem);
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-align: center;
+    }
+
+    .content {
+      max-width: 880px;
+      margin: 0 auto;
+      color: #30343a;
+      font-size: 1.04rem;
+    }
+
+    .content p {
+      margin: 0 0 14px;
+    }
+
+    .band {
+      background: var(--soft);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .video-frame {
+      position: relative;
+      overflow: hidden;
+      width: min(920px, 100%);
+      margin: 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0b0f14;
+      box-shadow: var(--shadow);
+      aspect-ratio: 16 / 9;
+    }
+
+    .video-frame iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .example {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 6px 18px rgba(16, 24, 40, 0.06);
+    }
+
+    .example img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .example-body {
+      padding: 14px 15px 16px;
+    }
+
+    .example h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+      line-height: 1.25;
+    }
+
+    .example p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.93rem;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: #30343a;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .note {
+      max-width: 820px;
+      margin: 14px auto 0;
+      color: var(--muted);
+      font-size: 0.96rem;
+      text-align: center;
+    }
+
+    pre {
+      overflow-x: auto;
+      max-width: 900px;
+      margin: 16px auto 0;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0f172a;
+      color: #e5edf8;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      white-space: pre;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+
+    footer {
+      padding: 26px 0 38px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 0.92rem;
+      text-align: center;
+    }
+
+    @media (max-width: 820px) {
+      .wrap {
+        width: min(100% - 28px, 1120px);
+      }
+
+      .hero {
+        padding-top: 38px;
+      }
+
+      .actions {
+        align-items: stretch;
+        flex-direction: column;
+        max-width: 360px;
+      }
+
+      .button {
+        width: 100%;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap" style="text-align: center;">
+      <p class="eyebrow">EMNLP 2026 System Demonstrations</p>
+      <h1>VidEngram: Agentic Long-Term Video Understanding via Structured Hierarchical Memory</h1>
+      <p class="subtitle">
+        VidEngram builds a persistent, inspectable memory for long videos once, then answers later questions with an agentic text-only retrieval loop grounded in timestamped evidence.
+      </p>
+      <div class="authors">
+        Zinuo Cheng, Yueqian Lin, Zhongxi Wang, Hai "Helen" Li, Yiran Chen
+        <div class="affiliation">Duke University</div>
+      </div>
+      <nav class="actions" aria-label="Primary links">
+        <a class="button" href="assets/videngram-paper.pdf">Paper</a>
+        <a class="button" href="https://youtu.be/e7lJXlMRjTU">Demo Video</a>
+        <a class="button" href="https://no00el-videngram-demo.hf.space/">Interactive Demo</a>
+        <a class="button secondary" href="https://github.com/No00el/VidEngram">Code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="teaser" aria-labelledby="overview-title">
+      <div class="wrap">
+        <h2 class="section-title" id="overview-title">System Overview</h2>
+        <div class="figure-shell">
+          <img src="assets/architecture.png" alt="VidEngram architecture: offline memory formation and online agentic retrieval." />
+        </div>
+        <p class="caption">
+          VidEngram separates video perception from repeated question answering: multimodal perception runs once at ingest, while later queries operate over structured memory.
+        </p>
+      </div>
+    </section>
+
+    <section aria-labelledby="abstract-title">
+      <div class="wrap">
+        <h2 class="section-title" id="abstract-title">Abstract</h2>
+        <div class="content">
+          <p>
+            Long-video question answering is wasteful and lossy when a multimodal model must re-encode the same video for every query: context limits force sparse sampling or truncation, and no reusable representation remains for later questions. VidEngram builds a persistent hierarchical memory once at ingest and answers later questions from that memory.
+          </p>
+          <p>
+            VidEngram captions video and audio jointly with Qwen2.5-Omni, consolidates segment memories into episode and entity layers, and uses a text-only ReAct planner with specialized retrieval tools to produce grounded answers. The interface makes this process inspectable through memory formation, retrieval traces, cited evidence in the video player, and entity relationships.
+          </p>
+        </div>
+        <div class="pill-row" aria-label="System properties">
+          <span class="pill">Persistent video memory</span>
+          <span class="pill">Timestamped evidence</span>
+          <span class="pill">Inspectable retrieval traces</span>
+          <span class="pill">Text-only query-time planner</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="video-title">
+      <div class="wrap">
+        <h2 class="section-title" id="video-title">Demo Video</h2>
+        <div class="video-frame">
+          <iframe
+            src="https://www.youtube-nocookie.com/embed/e7lJXlMRjTU"
+            title="VidEngram demo video"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen>
+          </iframe>
+        </div>
+        <p class="note">
+          The walkthrough shows the web interface, memory formation, timestamp-grounded QA, and entity-relationship exploration.
+        </p>
+      </div>
+    </section>
+
+    <section id="interactive-demo" aria-labelledby="interactive-title">
+      <div class="wrap">
+        <h2 class="section-title" id="interactive-title">Interactive Demo</h2>
+        <div class="content">
+          <p>
+            Reviewers can try the hosted VidEngram interface directly in the Hugging Face Space. The demo lets users browse pre-ingested videos, inspect memory traces, ask questions, and verify answers against timestamped video evidence.
+          </p>
+        </div>
+        <div class="actions" style="margin-top: 18px;">
+          <a class="button" href="https://no00el-videngram-demo.hf.space/">Open Hosted Demo</a>
+          <a class="button secondary" href="https://github.com/No00el/VidEngram#quick-start">Run Locally</a>
+          <a class="button secondary" href="https://github.com/No00el/VidEngram/blob/main/E2E_SETUP.md">Setup Guide</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="examples-title">
+      <div class="wrap">
+        <h2 class="section-title" id="examples-title">Interface Highlights</h2>
+        <div class="grid">
+          <article class="example">
+            <img src="assets/memory-formation.png" alt="VidEngram memory formation interface." />
+            <div class="example-body">
+              <h3>Memory Formation</h3>
+              <p>Structured segment memories are populated while the user watches the source video.</p>
+            </div>
+          </article>
+          <article class="example">
+            <img src="assets/qa-trace.png" alt="VidEngram question answering trace interface." />
+            <div class="example-body">
+              <h3>Grounded QA</h3>
+              <p>Answers include timestamp citations that highlight relevant regions in the video player.</p>
+            </div>
+          </article>
+          <article class="example">
+            <img src="assets/entity-graph.png" alt="VidEngram entity relationship graph interface." />
+            <div class="example-body">
+              <h3>Entity Graph</h3>
+              <p>Entity relationships expose how the persistent memory links people, objects, places, and events.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="citation-title">
+      <div class="wrap">
+        <h2 class="section-title" id="citation-title">Citation</h2>
+        <pre><code>@misc{videngram2026,
+  author = {Cheng, Zinuo and Lin, Yueqian and Wang, Zhongxi and Li, Hai and Chen, Yiran},
+  title = {VidEngram: Agentic Long-Term Video Understanding via Structured Hierarchical Memory},
+  year = {2026}
+}</code></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      VidEngram project page. For code and setup details, visit the GitHub repository.
+    </div>
+  </footer>
+</body>
+</html>
