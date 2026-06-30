@@ -157,30 +157,12 @@
       fill: currentColor;
     }
 
-    .youtube-icon {
-      position: relative;
-      width: 20px;
-      height: 14px;
-      border-radius: 4px;
-      background: #ff0033;
-    }
-
-    .youtube-icon::before {
-      content: "";
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 0;
-      height: 0;
-      border-top: 4px solid transparent;
-      border-bottom: 4px solid transparent;
-      border-left: 7px solid #fff;
-      transform: translate(-38%, -50%);
-    }
-
-    .hf-icon {
-      font-size: 1.05rem;
-      transform: translateY(-1px);
+    .brand-icon svg.stroke-icon {
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.7;
     }
 
     .teaser {
@@ -389,11 +371,24 @@
       </div>
       <nav class="actions" aria-label="Primary links">
         <a class="button" href="https://youtu.be/e7lJXlMRjTU">
-          <span class="brand-icon youtube-icon" aria-hidden="true"></span>
+          <span class="brand-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 18" role="img">
+              <path d="M22.1 2.8c-.2-.9-.9-1.6-1.8-1.8C18.7.6 12 .6 12 .6S5.3.6 3.7 1C2.8 1.2 2.1 1.9 1.9 2.8 1.5 4.4 1.5 9 1.5 9s0 4.6.4 6.2c.2.9.9 1.6 1.8 1.8 1.6.4 8.3.4 8.3.4s6.7 0 8.3-.4c.9-.2 1.6-.9 1.8-1.8.4-1.6.4-6.2.4-6.2s0-4.6-.4-6.2ZM9.9 12.6V5.4L16.2 9l-6.3 3.6Z"/>
+            </svg>
+          </span>
           <span>Demo Video</span>
         </a>
         <a class="button" href="https://no00el-videngram-demo.hf.space/">
-          <span class="brand-icon hf-icon" aria-hidden="true">🤗</span>
+          <span class="brand-icon" aria-hidden="true">
+            <svg class="stroke-icon" viewBox="0 0 24 24" role="img">
+              <circle cx="8.2" cy="9.8" r="1.2"/>
+              <circle cx="15.8" cy="9.8" r="1.2"/>
+              <path d="M8.6 14.4c1.8 1.6 5 1.6 6.8 0"/>
+              <path d="M5.2 12.5c-2.4.4-3.6 1.7-3.2 3.4.4 1.5 2 2 4.1 1.2"/>
+              <path d="M18.8 12.5c2.4.4 3.6 1.7 3.2 3.4-.4 1.5-2 2-4.1 1.2"/>
+              <path d="M4.7 10.6C4.7 6.8 7.7 4 12 4s7.3 2.8 7.3 6.6c0 5-2.9 8.4-7.3 8.4s-7.3-3.4-7.3-8.4Z"/>
+            </svg>
+          </span>
           <span>Interactive Demo</span>
         </a>
         <a class="button secondary" href="https://github.com/No00el/VidEngram">
@@ -463,7 +458,7 @@
         <h2 class="section-title" id="interactive-title">Interactive Demo</h2>
         <div class="content">
           <p>
-            Reviewers can try the hosted VidEngram interface directly in the Hugging Face Space. The demo lets users browse pre-ingested videos, inspect memory traces, ask questions, and verify answers against timestamped video evidence.
+            The hosted demo runs VidEngram on a small set of pre-ingested videos. You can browse the memory timeline, inspect retrieval traces, ask video-grounded questions, and jump from each answer to its cited timestamp evidence.
           </p>
         </div>
         <div class="actions" style="margin-top: 18px;">
