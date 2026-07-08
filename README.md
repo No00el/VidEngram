@@ -6,7 +6,7 @@ VidEngram is built on two core pillars: **Qwen2.5-Omni** for native multimodal v
 
 ## Demo Video
 
-https://youtu.be/e7lJXlMRjTU
+https://youtu.be/hoZQ7Fje5Zw
 
 ## Screenshots
 
