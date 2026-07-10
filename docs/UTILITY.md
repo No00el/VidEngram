@@ -1,7 +1,6 @@
 # VidEngram: Code Architecture & Utility Guide
 
-**Version:** 0.1.0 | **Target:** Memory Genesis Competition 2026, Track 1 (Agent + Memory)
-**Deadline:** March 16, 2026 | **Prize pool:** $80K+
+**Version:** 0.1.0
 
 ---
 
@@ -174,7 +173,7 @@ User Question → THINK → ACTION(tool) → OBSERVE → THINK → ... → ANSWE
 | `search_episodes(query)` | Fast memory search | First attempt for any factual question |
 | `search_profiles(query)` | Entity lookup | "Who is...", "Tell me about..." |
 | `search_deep(query)` | Multi-hop agentic search | Complex reasoning, cross-references |
-| `look_at_video(start, end, q)` | Extract + re-analyze clip | Visual verification, counting, reading text |
+| `look_at_clip(start, end, q)` | Extract + re-analyze clip | Visual verification, counting, reading text |
 | `get_timeline(start, end)` | Chronological event listing | "What happened between X and Y?" |
 
 **Why this is truly agentic:**
@@ -219,7 +218,7 @@ Tracks ingestion stats, manages multi-turn conversation history, and provides pr
 │  Question│    │  (ReAct)  │    │  search_episodes ──▶ Reader (rrf/bm25/embedding) │
 │          │    │           │    │  search_profiles ──▶ Reader (profile type)        │
 │          │    │  THINK    │    │  search_deep     ──▶ Reader (agentic mode)        │
-│          │    │  ACTION   │    │  look_at_video   ──▶ Captioner.analyze_clip()     │
+│          │    │  ACTION   │    │  look_at_clip    ──▶ Captioner.analyze_clip()     │
 │          │    │  OBSERVE  │    │  get_timeline    ──▶ Reader + time filter          │
 │          │    │  ANSWER   │    │                                                   │
 └──────────┘    └───────────┘    └─────────────────────────────────────────────────┘
@@ -257,7 +256,7 @@ Health:   GET  http://localhost:8001/health
 
 ---
 
-## Competition Differentiators (Why We Win)
+## Design Highlights
 
 ### 1. Not Naive Caption-RAG
 Most video+memory systems do: caption every frame → embed → vector search → answer. That's just RAG over subtitles. VidEngram adds hippocampal consolidation (dedup → episodes → profiles) to create hierarchical, reasoned memory.

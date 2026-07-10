@@ -1,6 +1,6 @@
 # VidEngram: Structured Video Memory Powered by EverMemOS
 
-> **Memory Genesis Competition 2026 — Track 1: Agent + Memory**
+> A structured long-video question-answering system with hierarchical memory and an agentic ReAct query loop.
 
 VidEngram is built on two core pillars: **Qwen2.5-Omni** for native multimodal video+audio understanding, and **EverMemOS** for structured long-term memory with hierarchical storage, hybrid retrieval, and temporal reasoning. VidEngram leverages EverMemOS's three-layer episodic memory architecture (MemCell → Episode → Entity Profile) as its reasoning backbone — enabling structured consolidation, hybrid retrieval, and temporal reasoning far beyond naive caption-and-retrieve approaches. (Architectural design is inspired in part by HippoMM's episodic memory principles.)
 
@@ -21,7 +21,7 @@ https://youtu.be/hoZQ7Fje5Zw
 | Feature | Description |
 |---|---|
 | **Native multimodal understanding** | Qwen2.5-Omni processes video frames and audio in a single pass — no separate vision/audio pipelines |
-| **EverMemOS three-layer memory** | Structured hierarchy: MemCell → Episode summary → Entity profile, with hybrid retrieval (BM25 + vector + reranker) |
+| **EverMemOS three-layer memory** | Structured hierarchy: MemCell → Episode summary → Entity profile, with hybrid retrieval (BM25 + vector via RRF) |
 | **ReAct agentic Q&A** | 6 tools, autonomous dispatch, self-reflection on answer quality |
 | **Forced timestamp citations** | All answers include `[Video M:SS - N:SS]` anchors grounded in actual video time |
 | **Streaming ingest architecture** | Speech and segment memories written concurrently as captions arrive |
@@ -47,7 +47,7 @@ scene & silence detection"]
         C["③ Captioner
 ──────────────
 Qwen2.5-Omni-7B · vLLM
-9-field structured output"]
+11-field structured output"]
         A -->|transcript| B
         B -->|segments| C
     end
@@ -71,7 +71,7 @@ MongoDB + ES + Milvus"]
 ──────────────
 ReAct reasoning loop"]
         G["search_episodes · search_profiles
-search_deep · look_at_video
+search_deep · look_at_clip
 search_speech · get_timeline"]
         F --> G
     end
@@ -84,7 +84,7 @@ search_speech · get_timeline"]
 
 ## Key Novelties
 
-1. **EverMemOS as the Memory Backbone** — All consolidated memories are stored in EverMemOS's native three-layer hierarchy (MemCell → Episode → Entity Profile). Retrieval combines BM25 keyword search, dense vector search, and LLM-guided reranking in a single hybrid (RRF) call — capabilities provided entirely by EverMemOS with no custom retrieval code needed.
+1. **EverMemOS as the Memory Backbone** — All consolidated memories are stored in EverMemOS's native three-layer hierarchy (MemCell → Episode → Entity Profile). Retrieval fuses BM25 keyword search and dense vector search via reciprocal rank fusion (RRF) in a single hybrid call, with an LLM-guided reranking stage for multi-hop agentic retrieval — capabilities provided entirely by EverMemOS with no custom retrieval code needed.
 
 2. **Structured Three-Layer Memory Pipeline** — Not naive caption→RAG. Three-stage consolidation (dedup, episodes, profiles) creates a hierarchical memory structure that enables multi-hop reasoning, mapping directly onto EverMemOS's native storage layers.
 
@@ -175,7 +175,7 @@ videngram/
 │   │                       #   MemoryResult, AgentAction, AgentResponse) + timestamp helpers
 │   ├── pipeline.py         # End-to-end orchestration (ingest + query)
 │   ├── segmenter.py        # ASR-guided temporal segmentation
-│   ├── captioner.py        # Qwen2.5-Omni structured captioning (9 fields, local + external API)
+│   ├── captioner.py        # Qwen2.5-Omni structured captioning (11 fields, local + external API)
 │   ├── transcriber.py      # Speech transcription (Whisper-compatible ASR)
 │   ├── consolidator.py     # Memory consolidation (dedup → episodes → entity profiles)
 │   ├── memory_writer.py    # EverMemOS ingestion adapter (streaming, concurrent writes)
@@ -203,12 +203,12 @@ videngram/
 
 | Module | VidEngram Implementation |
 |---|---|
-| Multimodal Encoding | `captioner.py`: Qwen2.5-Omni 9-field structured captions (unified AV) |
+| Multimodal Encoding | `captioner.py`: Qwen2.5-Omni 11-field structured captions (unified AV) |
 | Temporal Segmentation | `segmenter.py`: ASR-guided + scene/silence detection; dedup filtering in `consolidator.py` |
 | Memory Consolidation | `consolidator.py`: episode summaries + entity profile construction → EverMemOS MemCell/Episode/Profile |
 | Agentic Reasoning | `agent.py`: ReAct agent tool dispatch over EverMemOS memories |
 | Fast Retrieval | `memory_reader.py`: EverMemOS RRF / BM25 / embedding hybrid search |
-| Deep Retrieval | `memory_reader.py`: LLM-guided multi-hop retrieval + video grounding via `look_at_video` |
+| Deep Retrieval | `memory_reader.py`: LLM-guided multi-hop retrieval + video grounding via `look_at_clip` |
 | Structured Storage | `memory_writer.py`: EverMemOS MemCell → Episode → Profile hierarchy |
 
 ## Dependencies
@@ -235,8 +235,7 @@ If you use VidEngram, please cite:
 @misc{videngram2026,
   author={Zinuo Cheng and Yueqian Lin and Hai "Helen" Li and Yiran Chen},
   title={VidEngram: Structured Video Memory Powered by EverMemOS},
-  year={2026},
-  note={Memory Genesis Competition 2026, Track 1: Agent + Memory}
+  year={2026}
 }
 ```
 

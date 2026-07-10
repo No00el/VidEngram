@@ -11,7 +11,7 @@ Available tools:
   1. search_episodes  — Search video episode memories (fast, lightweight)
   2. search_profiles  — Look up entity/speaker profiles
   3. search_deep      — Agentic multi-hop retrieval (thorough, slower)
-  4. look_at_video    — Extract + analyze a specific video moment (grounding)
+  4. look_at_clip    — Extract + analyze a specific video moment (grounding)
   5. get_timeline     — List all events in a time range
 
 This makes VidEngram truly AGENTIC:
@@ -20,13 +20,14 @@ This makes VidEngram truly AGENTIC:
   - It ITERATES if initial retrieval is insufficient
   - It GROUNDS answers in specific timestamps (context-grounding)
 
-Competition differentiators:
+Design highlights:
   - Not just RAG over captions — it's a reasoning agent with tool access
   - Combines EverMemOS structured memory with on-demand video understanding
   - Hippocampal dual-pathway: fast retrieval first, then deep recall if needed
 """
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -66,7 +67,7 @@ You have access to these tools:
    SLOWER but more thorough. USE FOR: complex questions requiring reasoning
    across multiple video segments, cross-references, temporal logic.
 
-5. look_at_video(start_min, end_min, question) → Extract and analyze a specific
+5. look_at_clip(start_min, end_min, question) → Extract and analyze a specific
    video moment. Sends the actual clip to the vision model for fresh analysis.
    USE FOR: when memory doesn't have enough detail, visual verification,
    "what exactly does X look like", counting objects, reading text on screen.
@@ -75,15 +76,28 @@ You have access to these tools:
    USE FOR: "what happened between X and Y", chronological questions.
 
 ## Instructions:
+
+### Core principle — answer as soon as the evidence allows; do NOT over-search.
+After EVERY tool result, FIRST ask yourself: "Does what I already have let me answer the question?"
+If yes, output ANSWER immediately — do NOT call more tools just to be thorough. One or two
+well-targeted searches answer most questions; calling every tool is a mistake, not diligence.
+For MULTIPLE-CHOICE: the moment the evidence favors one option, commit with `ANSWER: X`. A confident
+answer from partial evidence beats extra tool calls. Escalate to another tool ONLY when your current
+results are empty or clearly do not contain the fact asked.
+
 - Think step-by-step about what information you need
 - For KEYWORD/TEMPORAL questions ("when did speaker say X", "at what time did Y happen"):
   ALWAYS start with search_speech(query) — it does BM25 exact-word search on transcripts.
-- For FACTUAL/VISUAL questions: start with search_episodes, escalate to search_deep or look_at_video if needed.
+- For FACTUAL/VISUAL questions: start with the single most relevant tool (search_episodes for
+  facts/visuals, search_speech for exact spoken words). If its result already answers the question,
+  ANSWER. Add a second tool ONLY if the first is empty or clearly misses the specific fact asked.
+- For questions about specific spoken facts (exact book titles, tool names, costs, dates,
+  abbreviation definitions): call search_speech with the key content words (not the
+  speaker's name) — episode memories may paraphrase while speech has the exact wording.
 - For overview questions ("what is the video about", "summarize the video", "what happens in the video"):
   use get_timeline(0, 999) first to get a full chronological event list, then synthesize an answer
-- You MUST try at least 2 different tools or queries before concluding that content is not available.
-  If the first search returns no results, try: a different query phrasing, search_profiles, search_deep, or get_timeline
-- You can call multiple tools before answering
+- Only if your first search returns nothing useful, try ONE alternative (different query phrasing,
+  search_profiles, search_deep, or get_timeline). Never chain extra tools once you already have an answer.
 - Answer in the SAME LANGUAGE as the user's question
 - ALWAYS cite timestamps for every factual claim about the video using EXACTLY this format: [Video M:SS - N:SS]
   where M:SS is minutes:seconds (e.g. [Video 0:35 - 1:20]).
@@ -93,16 +107,29 @@ You have access to these tools:
   * For SPECIFIC-FACT questions (what did X say, why did Y happen, what does Z look like, etc.):
     - You MUST cite a [Video M:SS - N:SS] segment-level timestamp that pinpoints the exact moment.
     - [Episode M:SS - N:SS] timestamps span large portions of the video and are NOT acceptable for specific facts.
-    - If your search only returns [Episode ...] results, you MUST call search_speech, search_deep, or look_at_video
-      to find the precise [Video ...] segment timestamp before answering. Do not give up.
+    - Prefer a precise [Video ...] segment timestamp. If you only have [Episode ...] results but they already
+      support the answer, ANSWER with it. Escalate to another tool only when you have no usable evidence yet.
   * For OVERVIEW/SUMMARY questions (what is the video about, summarize, what happens):
     - Use the video's total duration as the single timestamp (provided in Video metadata above).
     - Or cite each major event with its own [Video ...] segment timestamp separately.
-- If after trying multiple tools you still have empty or low-relevance results, you MUST call
-  look_at_video on the most relevant video segment as a LAST RESORT before giving your ANSWER.
-  Only after look_at_video is also insufficient should you acknowledge the limitation honestly.
-- Only answer based on video memories — do NOT use general knowledge for video-specific facts
-- NEVER mention real-world calendar dates (e.g. "December 16, 2025", "in January 2025", "on March 13") in your answer. Any dates in memory content are not real event dates. Refer only to positions in the video using [Video M:SS - N:SS] or neutral phrases like "at one point in the video" or "in the video".
+- Only when you still have NO usable evidence after searching may you call look_at_clip on the most
+  relevant segment. If you already have partial evidence, prefer to ANSWER with it rather than add a tool call.
+- For MULTIPLE-CHOICE questions: NEVER answer that you cannot determine or that information is
+  unavailable. You MUST commit to the single most likely option using whatever partial evidence
+  and reasoning you have — a best guess always beats refusing. End with `ANSWER: X`.
+- For video-specific facts prefer the video memories over general knowledge
+- Answer in plain prose. Do NOT use markdown formatting (no bullet points, no bold, no headers).
+- When expanding abbreviations (RLVR, DCLM, GRPO, etc.): call search_speech with the
+  abbreviation itself to find its definition. Use the definition verbatim from the retrieved
+  speech. Do NOT guess from your general knowledge.
+- For specific book titles mentioned in the video: call search_speech for the title words
+  (not the author's name). Use the EXACT title from retrieved speech — do not substitute
+  another book by the same author even if you know of one.
+- Dates and times spoken aloud by speakers in the video ARE real facts and MUST be reported
+  accurately when retrieved from speech transcripts (e.g. "January 2025", "five million dollars").
+  Do NOT suppress or replace these with vague phrases.
+- NEVER cite EverMemOS metadata timestamps (ISO format like "2025-12-16T00:00:00" or upload
+  timestamps injected by the storage system) — these are not video event dates.
 
 ## Response Format:
 For each step, output EXACTLY one of:
@@ -170,6 +197,31 @@ class VidEngramAgent:
         from .memory_writer import MemoryWriter as _MW
         self._current_group_id = _MW._video_group_id(video_path)
 
+        # --- FAST MODE: single-shot RAG (1 retrieval pass + 1 LLM call, no ReAct loop) ---
+        # VE_FAST=1 skips the multi-step ReAct loop: retrieve episodes (+ exact-word
+        # speech) deterministically, then answer in a single LLM call. Trades a bit of
+        # accuracy for ~1 LLM call instead of 3-4 (much lower latency + cost).
+        if os.getenv("VE_FAST", "0") == "1":
+            if step_callback is not None:
+                step_callback("Fast mode: single-shot retrieve + answer…")
+            omit_gid = search_scope == "all"
+            results = self.reader.search_episodes(
+                question, video_path, mode=os.getenv("VE_EPISODES_MODE", "hybrid"),
+                top_k=int(os.getenv("VE_TOPK_EPISODES", "15")), omit_group_id=omit_gid,
+            ) or []
+            try:
+                sp = self.reader.search_speech_bm25(
+                    question, video_path, top_k=5, omit_group_id=omit_gid,
+                ) or []
+                results = results + sp
+            except Exception as e:
+                logger.warning(f"fast-mode speech search failed: {e}")
+            fast_sources = (
+                self.reader.tag_cross_video_content(results, self._current_group_id)
+                if results else []
+            )
+            return self._fallback_answer(question, video_path, [], fast_sources)
+
         # When scope is "all", tell the model it can access memories from ALL ingested videos
         if search_scope == "all":
             system_prompt = (
@@ -222,11 +274,13 @@ class VidEngramAgent:
                 extra = {}
                 if "qwen" in self.agent_cfg.planning_llm_model.lower():
                     extra["extra_body"] = {"modalities": ["text"]}
+                if "gpt-5" in self.agent_cfg.planning_llm_model.lower():
+                    extra["reasoning_effort"] = "minimal"
                 response = self.llm.chat.completions.create(
                     model=self.agent_cfg.planning_llm_model,
                     messages=messages,
                     max_tokens=2048,
-                    temperature=0.2,
+                    temperature=(1 if "gpt-5" in self.agent_cfg.planning_llm_model.lower() else 0.2),
                     **extra,
                 )
                 llm_output = response.choices[0].message.content.strip()
@@ -280,11 +334,12 @@ class VidEngramAgent:
                 answer_text = self._strip_calendar_dates_from_answer(answer_text)
 
                 # --- Forced video grounding fallback ---
-                # If look_at_video hasn't been used yet and sources are insufficient,
-                # intercept the answer, run look_at_video, and re-ask the LLM.
+                # If look_at_clip hasn't been used yet and sources are insufficient,
+                # intercept the answer, run look_at_clip, and re-ask the LLM.
                 # Disabled in "all" mode — grounding the current video is wrong for cross-video queries.
-                look_at_video_used = any(a.tool == "look_at_video" for a in actions)
-                if not look_at_video_used and self._sources_insufficient(sources) and search_scope != "all":
+                look_at_clip_used = any(a.tool == "look_at_clip" for a in actions)
+                _force_look = os.getenv("VE_FORCE_LOOK", "0") == "1"
+                if not look_at_clip_used and (_force_look or self._sources_insufficient(sources)) and search_scope != "all":
                     if not self.agent_cfg.enable_video_grounding:
                         logger.warning(
                             "Insufficient sources but video grounding is disabled "
@@ -301,7 +356,7 @@ class VidEngramAgent:
                             if clip_path:
                                 grounded_clips.append(clip_path)
                             actions.append(AgentAction(
-                                tool="look_at_video",
+                                tool="look_at_clip",
                                 input_params={"raw": "auto_fallback"},
                                 output=result_text[:500],
                                 reasoning="[Auto-fallback: insufficient memory results]",
@@ -315,11 +370,13 @@ class VidEngramAgent:
                                 extra = {}
                                 if "qwen" in self.agent_cfg.planning_llm_model.lower():
                                     extra["extra_body"] = {"modalities": ["text"]}
+                                if "gpt-5" in self.agent_cfg.planning_llm_model.lower():
+                                    extra["reasoning_effort"] = "minimal"
                                 gr = self.llm.chat.completions.create(
                                     model=self.agent_cfg.planning_llm_model,
                                     messages=messages,
                                     max_tokens=2048,
-                                    temperature=0.2,
+                                    temperature=(1 if "gpt-5" in self.agent_cfg.planning_llm_model.lower() else 0.2),
                                     **extra,
                                 )
                                 gr_output = gr.choices[0].message.content.strip()
@@ -379,7 +436,7 @@ class VidEngramAgent:
 
             if tool_name == "search_episodes":
                 query = params.get("query", params_str.strip("'\""))
-                results = self.reader.search_episodes(query, video_path, top_k=5, omit_group_id=omit_gid)
+                results = self.reader.search_episodes(query, video_path, mode=os.getenv("VE_EPISODES_MODE", "hybrid"), top_k=int(os.getenv("VE_TOPK_EPISODES", "15")), omit_group_id=omit_gid)
                 results = self.reader.tag_cross_video_content(results, cur_gid)
                 new_sources = results
                 result_text = self._format_results(results)
@@ -393,13 +450,13 @@ class VidEngramAgent:
 
             elif tool_name == "search_deep":
                 query = params.get("query", params_str.strip("'\""))
-                results = self.reader.search_agentic(query, video_path, top_k=10, omit_group_id=omit_gid)
+                results = self.reader.search_agentic(query, video_path, top_k=int(os.getenv("VE_TOPK_DEEP", "25")), omit_group_id=omit_gid)
                 results = self.reader.tag_cross_video_content(results, cur_gid)
                 new_sources = results
                 result_text = self._format_results(results)
 
-            elif tool_name == "look_at_video":
-                result_text, clip_path = self._tool_look_at_video(
+            elif tool_name == "look_at_clip":
+                result_text, clip_path = self._tool_look_at_clip(
                     params, video_path, video_duration
                 )
                 if clip_path:
@@ -407,7 +464,7 @@ class VidEngramAgent:
 
             elif tool_name == "search_speech":
                 query = params.get("query", params_str.strip("'\""))
-                results = self.reader.search_speech_bm25(query, video_path, top_k=5, omit_group_id=omit_gid)
+                results = self.reader.search_speech_bm25(query, video_path, top_k=12, omit_group_id=omit_gid)
                 results = self.reader.tag_cross_video_content(results, cur_gid)
                 new_sources = results
                 result_text = self._format_results(results)
@@ -424,7 +481,7 @@ class VidEngramAgent:
 
         return result_text, new_sources, new_clips
 
-    def _tool_look_at_video(
+    def _tool_look_at_clip(
         self, params: dict, video_path: str, video_duration: Optional[float] = None
     ) -> tuple[str, Optional[str]]:
         """Extract a video clip and analyze it with Qwen2.5-Omni.
@@ -436,20 +493,40 @@ class VidEngramAgent:
         if not self.agent_cfg.enable_video_grounding:
             return "Video grounding disabled.", None
 
-        max_min = (video_duration / 60) if video_duration is not None else None
-        start_min = self.parse_min(params.get("start_min", 0))
-        end_min = self.parse_min(params.get("end_min", start_min + 0.5))
-        if max_min is not None:
-            start_min = min(start_min, max_min)
-            end_min = min(end_min, max_min)
-        if end_min <= start_min:
-            end_min = start_min + 0.5
-            if max_min is not None:
-                end_min = min(end_min, max_min)
         question = params.get("question", "Describe what you see and hear in detail.")
+        max_sec = video_duration if video_duration is not None else None
 
-        start_sec = start_min * 60
-        end_sec = end_min * 60
+        # MEMORY-GROUNDED clip selection: locate the segment via retrieval timestamps
+        # rather than the agent's own start/end guesses (which are unreliable — often
+        # out of range, e.g. "3-4min" for a 2min video). Retrieve the question, take
+        # the highest-scored hit's timestamp, look at that 30s window.
+        start_sec = end_sec = None
+        try:
+            hits = self.reader.search_episodes(question, video_path, top_k=4)
+            for r in sorted(hits, key=lambda r: r.score, reverse=True):
+                if getattr(r, "timestamp_range", None):
+                    s, e = r.timestamp_range
+                    start_sec = s
+                    end_sec = e if (e - s) <= 30.0 else s + 30.0
+                    break
+        except Exception:
+            pass
+
+        # Fallback: agent-provided window; if out of range, video midpoint ±15s.
+        if start_sec is None:
+            start_min = self.parse_min(params.get("start_min", 0))
+            end_min = self.parse_min(params.get("end_min", start_min + 0.5))
+            start_sec, end_sec = start_min * 60, end_min * 60
+            if max_sec is not None and start_sec >= max_sec:
+                mid = max_sec / 2
+                start_sec, end_sec = max(0.0, mid - 15), min(max_sec, mid + 15)
+
+        if max_sec is not None:
+            start_sec = min(start_sec, max(0.0, max_sec - 1.0))
+            end_sec = min(end_sec, max_sec)
+        if end_sec <= start_sec:
+            end_sec = start_sec + 30.0 if max_sec is None else min(start_sec + 30.0, max_sec)
+        start_min, end_min = start_sec / 60.0, end_sec / 60.0
 
         # Extract clip
         clip_dir = self.config.work_dir / "agent_clips"
@@ -532,7 +609,7 @@ class VidEngramAgent:
             return f"Looking up entity register: {p}"
         elif tool_name == "search_deep":
             return f"Deep searching: {p}"
-        elif tool_name == "look_at_video":
+        elif tool_name == "look_at_clip":
             return "Examining video footage"
         elif tool_name == "get_timeline":
             return "Scanning video timeline"
@@ -565,6 +642,8 @@ class VidEngramAgent:
             extra = {}
             if "qwen" in self.agent_cfg.planning_llm_model.lower():
                 extra["extra_body"] = {"modalities": ["text"]}
+            if "gpt-5" in self.agent_cfg.planning_llm_model.lower():
+                extra["reasoning_effort"] = "minimal"
             response = self.llm.chat.completions.create(
                 model=self.agent_cfg.planning_llm_model,
                 messages=[
@@ -582,7 +661,7 @@ class VidEngramAgent:
                     )},
                 ],
                 max_tokens=1024,
-                temperature=0.3,
+                temperature=(1 if "gpt-5" in self.agent_cfg.planning_llm_model.lower() else 0.3),
                 **extra,
             )
             answer = self._normalize_timestamps(response.choices[0].message.content.strip())
@@ -640,7 +719,7 @@ class VidEngramAgent:
     def _sources_insufficient(sources: list[MemoryResult]) -> bool:
         """Return True if sources are empty or all have low relevance scores.
 
-        Used to decide whether to force a look_at_video fallback.
+        Used to decide whether to force a look_at_clip fallback.
         Score threshold of 0.3 is calibrated for hybrid/embedding retrieval (0-1 range).
         BM25 scores are typically >> 0.3 for any real match, so they won't false-trigger.
         """
@@ -653,50 +732,32 @@ class VidEngramAgent:
 
     @staticmethod
     def _strip_injected_dates(text: str) -> str:
-        """Remove date/time strings from memory content before sending to the LLM.
+        """Remove EverMemOS-injected metadata timestamps from memory content.
 
-        EverMemOS may embed virtual create_time or real timestamps (e.g. upload time)
-        into content. Stripping them prevents the agent from citing wrong calendar dates.
-        English only.
+        Only strips machine-generated ISO timestamps. Human-readable dates that
+        speakers mention in the video are legitimate facts and must be preserved
+        so the LLM can cite them accurately.
         """
-        # "on January 1, 2025, at 12:00 AM UTC" and variants
+        # ISO datetime with T separator: 2026-01-01T00:00:00+00:00
         text = re.sub(
-            r',?\s+(?:on\s+)?[A-Z][a-z]+ \d{1,2}, \d{4}'
-            r'(?:,\s+at\s+[\d:]+\s*(?:AM|PM)\s+UTC)?',
+            r'\b(?:19|20)\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s,\]]*',
+            '',
+            text,
+        )
+        # "at 12:00 AM UTC" EverMemOS tail artifact
+        text = re.sub(
+            r',?\s*at\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s+UTC',
             '',
             text,
             flags=re.IGNORECASE,
         )
-        # "before/after December 16, 2025", "December 16, 2025"
+        # ISO date-only when preceded by upload/index/created context
         text = re.sub(
-            r'(?:before|after|on)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}',
+            r'(?:uploaded?|indexed?|created?|stored?)\s+(?:on\s+)?(?:19|20)\d{2}-\d{2}-\d{2}',
             '',
             text,
             flags=re.IGNORECASE,
         )
-        text = re.sub(
-            r'\b[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\b',
-            '',
-            text,
-            flags=re.IGNORECASE,
-        )
-        # "more than X weeks before Month DD, YYYY"
-        text = re.sub(
-            r'(?:more than\s+)?(?:\d+\s+)?(?:weeks?|days?|months?)\s+(?:before|after)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}',
-            '',
-            text,
-            flags=re.IGNORECASE,
-        )
-        # "in January 2025", "in 2025"
-        text = re.sub(r'\bin\s+[A-Z][a-z]+\s+\d{4}\b', '', text, flags=re.IGNORECASE)
-        text = re.sub(r'\bin\s+(?:19|20)\d{2}\b', '', text, flags=re.IGNORECASE)
-        # ISO date/datetime: 2025-01-01 or 2026-01-01T00:00:00+00:00
-        text = re.sub(
-            r'\b(?:19|20)\d{2}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}[^\s,\]]*)?',
-            '',
-            text,
-        )
-        text = re.sub(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s,\]]*', '', text)
         text = re.sub(r'  +', ' ', text).strip()
         return text
 
@@ -837,63 +898,36 @@ class VidEngramAgent:
 
     @classmethod
     def _strip_calendar_dates_from_answer(cls, text: str) -> str:
-        """Remove real-world calendar dates from the answer and replace with a neutral phrase.
+        """Remove EverMemOS metadata timestamps from the answer.
 
-        Prevents the model from outputting wrong dates (e.g. upload/index time). English only.
+        Only strips machine-generated ISO timestamps injected by the storage system.
+        Human-readable dates spoken in the video (e.g. "January 2025", "in 2025") are
+        legitimate facts and must NOT be removed.
         """
         if not text:
             return text
         neutral = cls._NEUTRAL_PHRASE
-        # "more than X weeks/days before/after Month DD, YYYY" or "X weeks before December 16, 2025"
+        # ISO datetime: 2025-12-16T00:00:00+00:00 or 2026-01-01T00:00:00
         text = re.sub(
-            r"(?:more than\s+)?(?:\d+\s+)?(?:weeks?|days?|months?)\s+"
-            r"(?:before|after)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}",
+            r"\b(?:19|20)\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s,\]]*",
+            neutral,
+            text,
+        )
+        # ISO date-only when followed by EverMemOS context words (upload, index, created)
+        text = re.sub(
+            r"(?:uploaded?|indexed?|created?|stored?)\s+(?:on\s+)?"
+            r"(?:19|20)\d{2}-\d{2}-\d{2}",
             neutral,
             text,
             flags=re.IGNORECASE,
         )
-        # "before/after December 16, 2025" or "on December 16, 2025"
-        text = re.sub(
-            r"(?:before|after|on)\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}",
-            neutral,
-            text,
-            flags=re.IGNORECASE,
-        )
-        # "December 16, 2025" (Month DD, YYYY)
-        text = re.sub(
-            r"\b[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\b",
-            neutral,
-            text,
-            flags=re.IGNORECASE,
-        )
-        # "in January 2025", "in 2025"
-        text = re.sub(
-            r"\bin\s+[A-Z][a-z]+\s+\d{4}\b",
-            neutral,
-            text,
-            flags=re.IGNORECASE,
-        )
-        text = re.sub(
-            r"\bin\s+(?:19|20)\d{2}\b",
-            neutral,
-            text,
-            flags=re.IGNORECASE,
-        )
-        # ISO: 2025-12-16 or 2026-01-01T00:00:00...
-        text = re.sub(
-            r"\b(?:19|20)\d{2}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}[^\s]*)?\b",
-            neutral,
-            text,
-        )
-        # "on January 1, 2025, at 12:00 AM UTC" (already partially covered; catch "at HH:MM AM/PM UTC" tail)
+        # "at 12:00 AM UTC" tail (EverMemOS metadata artifact)
         text = re.sub(
             r",\s*at\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s+UTC",
             "",
             text,
             flags=re.IGNORECASE,
         )
-        # Collapse repeated neutral phrase and fix spacing
-        text = re.sub(rf"(?:\s*{re.escape(neutral)}\s*)+", f" {neutral} ", text)
         text = re.sub(r"  +", " ", text).strip()
         return text
 
@@ -904,7 +938,7 @@ class VidEngramAgent:
         video_path: str,
         video_duration: Optional[float],
     ) -> Optional[tuple[str, Optional[str]]]:
-        """Pick the best clip to examine and call look_at_video.
+        """Pick the best clip to examine and call look_at_clip.
 
         Clip selection:
         - Has sources with timestamps → use the highest-scored one.
@@ -949,7 +983,7 @@ class VidEngramAgent:
             "end_min": best_end_sec / 60.0,
             "question": question,
         }
-        return self._tool_look_at_video(params, video_path)
+        return self._tool_look_at_clip(params, video_path)
 
     @staticmethod
     def parse_min(val, default=0):

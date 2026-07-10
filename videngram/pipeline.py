@@ -196,7 +196,10 @@ class VidEngramPipeline:
         t1 = time.time()
         logger.info(f"Step 3/5: Captioning {len(segments)} segments (streaming ingest)")
 
-        seg_write_executor = ThreadPoolExecutor(max_workers=3)
+        # Serialize writes under parallel captioning (max_workers=1) so batched
+        # captions are not merged into oversized memory cells by boundary
+        # detection, which would sharply reduce episode extraction.
+        seg_write_executor = ThreadPoolExecutor(max_workers=1 if parallel_caption else 3)
         seg_write_futures: list = []
         seg_memories_list: list = []  # kept for t-SNE and stats
 
@@ -391,7 +394,7 @@ class VidEngramPipeline:
         - search_episodes: Fast memory lookup
         - search_profiles: Entity/speaker profiles
         - search_deep: Multi-hop agentic retrieval
-        - look_at_video: Extract + re-analyze video clip (grounding)
+        - look_at_clip: Extract + re-analyze video clip (grounding)
         - get_timeline: Chronological event listing
 
         Args:

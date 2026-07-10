@@ -4,7 +4,7 @@ VidEngram Evaluation Script
 ============================
 Benchmark VidEngram against a set of video QA pairs.
 
-This demonstrates quantitative evaluation for the Memory Genesis Competition.
+This provides quantitative evaluation of VidEngram's video QA accuracy.
 Supports both automated scoring (LLM-as-judge) and manual review.
 
 Usage:

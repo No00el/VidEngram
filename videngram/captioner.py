@@ -24,28 +24,47 @@ from .utils import VideoSegment, Caption, fmt_minutes
 logger = logging.getLogger("videngram.captioner")
 
 CAPTION_SYSTEM_PROMPT = """\
-You are a precise video analyst. For each video segment output EXACTLY these \
-labeled fields, each on its own line. Be specific and factual.
+You are a precise, EXHAUSTIVE video analyst. For each video segment output EXACTLY these \
+labeled fields, each on its own line. Record EVERY detail — exact counts and quantities, \
+colors, on-screen text, spatial relationships, object attributes, and fine-grained actions. \
+Downstream questions are detailed and counting-heavy and will depend on the specifics you \
+capture here, so err strongly on the side of MORE detail. NEVER summarize (e.g. "a costume", \
+"some objects", "music plays") — ENUMERATE the specifics instead (e.g. "red cape, blue mask, \
+yellow emblem"; "3 books and 2 red cups"; "upbeat piano with drums").
 
-SCENE: [Physical setting, location, lighting, camera angle. Be specific.]
-PEOPLE: [All visible persons: identity/name if known, appearance, position, expression.]
-ACTIONS: [What each person is doing, any interactions or movements during this segment.]
+SCENE: [Physical setting, location, lighting, camera angle and movement, background elements. Be exhaustive.]
+PEOPLE: [Every visible person: identity/name if known, clothing and colors, position, expression, posture. State how many there are, and note relative attributes (who is tallest/shortest, leftmost/rightmost, oldest/youngest, nearest/farthest) so later questions can disambiguate which person.]
+ACTIONS: [What each person does, all interactions and movements, described step by step in order.]
 DIALOGUE: [When an ASR transcript is provided, use it verbatim as the words spoken — \
 do not re-transcribe or paraphrase. Attribute each utterance to the visually identifiable \
 speaker by name or description (e.g. "John:", "Woman in red:"); if speakers cannot be \
 distinguished visually, use "Speaker A:", "Speaker B:", etc. If no ASR transcript is \
 provided, transcribe speech yourself. Output "None" if the segment is silent.]
-SOUNDS: [Background music, sound effects, ambient noise — exclude speech already in DIALOGUE.]
-TEXT: [All visible on-screen text, signs, titles, subtitles. "None" if absent.]
-OBJECTS: [Notable objects, tools, props, and their significance to the scene.]
-EMOTION: [Emotional tone with specific descriptors: e.g. "tense confrontation, anxious body language, rising conflict". Include nuance.]
-TEMPORAL: [Describe the sequence of events within this segment in order: what happens first, what changes, how it ends.]
+SOUNDS: [Every non-speech sound, in detail: animal/object sounds (e.g. "dog barks twice", "owl hiss"), music (genre, instruments, tempo, mood), sound effects, ambient noise. Count occurrences. CRITICAL for audio questions — never write just "music plays".]
+AV_SYNC: [Audio-visual co-occurrence — THE key field for audio-visual sync questions. For EVERY notable sound, speech line, or music cue, state what is visually happening at that EXACT moment and WHO is involved, identifying people by distinguishing attributes (tallest, red shirt, leftmost). Link each audio event to the simultaneous visual with "→". E.g. "whistle blows → the tallest boy (blue cap) starts running"; "woman in red says 'stop' → she raises her right hand"; "drums kick in → the crowd starts jumping". Cover every audio-visual pairing in the segment. "None" only if the segment is fully silent with no music or sound.]
+TEXT: [ALL visible on-screen text, signs, titles, subtitles — transcribe verbatim. "None" if absent.]
+OBJECTS: [ALL notable objects, tools, props: their colors, quantities, positions, and any text on them.]
+COUNTS: [Explicit counts of anything countable in this segment: number of people, repeated objects, occurrences of an event. Always give numbers when possible.]
+EMOTION: [Emotional tone with specific descriptors and nuance.]
+TEMPORAL: [Sequence of events within this segment in order: what happens first, what changes, how it ends.]
+
+EXAMPLE of the expected level of detail (a different segment, for style only):
+SCENE: Dimly lit recording studio, acoustic foam panels on the back wall, warm desk-lamp lighting, fixed frontal camera; a boom microphone in the foreground.
+PEOPLE: 2 people. Left: man ~40s, short black hair, navy blazer over white shirt, leaning forward, animated. Right: woman ~30s, long brown hair, red sweater, attentive, nodding.
+OBJECTS: 1 boom microphone; 2 white coffee mugs (one with a logo); a silver laptop open on the desk; a framed poster on the back wall.
+COUNTS: 2 people; 2 mugs; the man gestures with his hands 3 times.
+SOUNDS: faint air-conditioner hum throughout; 1 chair creak near the start; paper rustling once; no music.
+AV_SYNC: man gestures (3rd time) → he says "the data is clear"; chair creak → the woman (right, red sweater) shifts posture and leans back; paper rustling → the man picks up a sheet from the desk.
+TEXT: back-wall poster reads "JAZZ NIGHT"; laptop screen shows "REC 00:42".
+Match THIS exhaustiveness: name specifics, colors, on-screen text, and exact numbers for every field.
 """
 
 CAPTION_USER_TEMPLATE = """\
 Analyze this video segment ({timestamp_label}, duration {duration:.0f}s). \
 Segment {seg_index} of {total_segments}.{asr_hint}
-Output all 9 labeled fields: SCENE, PEOPLE, ACTIONS, DIALOGUE, SOUNDS, TEXT, OBJECTS, EMOTION, TEMPORAL."""
+Output all 11 labeled fields: SCENE, PEOPLE, ACTIONS, DIALOGUE, SOUNDS, AV_SYNC, TEXT, OBJECTS, COUNTS, EMOTION, TEMPORAL. \
+Your output MUST be AT LEAST 400 words — write exhaustively for EVERY field. A difficult quiz \
+about this segment will depend on the fine details you record, so do not stop early or summarize."""
 
 ASR_HINT_TEMPLATE = """
 
@@ -62,7 +81,7 @@ class Captioner:
         self.cfg = config.captioner
         self.qwen_cfg = config.qwen
         self.remote = config.remote
-        _timeout = httpx.Timeout(200.0, connect=10.0, read=180.0, write=60.0)
+        _timeout = httpx.Timeout(180.0, connect=10.0, read=180.0, write=90.0)
         self.client = OpenAI(
             base_url=self.qwen_cfg.base_url,
             api_key=self.qwen_cfg.api_key,
@@ -72,7 +91,50 @@ class Captioner:
             base_url=self.qwen_cfg.base_url,
             api_key=self.qwen_cfg.api_key,
             http_client=httpx.AsyncClient(timeout=_timeout),
+            max_retries=6,   # ride out transient tunnel/saturation APIConnectionErrors
         )
+        # Multi-endpoint Omni parallelism: when several local Omni workers are
+        # available, build one async client per endpoint and dispatch segment i
+        # to endpoint i % n. Each endpoint handles ~1 segment at a time, which
+        # speeds up captioning while avoiding per-endpoint decode stalls. With a
+        # single endpoint (e.g. a hosted API) this degrades to [async_client].
+        self.async_clients = self._build_async_clients(_timeout)
+
+    def _build_async_clients(self, timeout):
+        """Build per-endpoint async clients for parallel captioning.
+
+        Local Omni is served as 6 instances on ports 8091-8096 (tunneled). We
+        round-robin segments across them so each Omni handles ~1 concurrent
+        request (no single-endpoint KV deadlock). Non-local single endpoints
+        (e.g. DashScope) just reuse the one async_client.
+        """
+        import re as _re, os as _os
+        base = self.qwen_cfg.base_url or ""
+        m = _re.search(r"^(https?)://([^/:]+):(80\d\d)(/.*)?$", base)
+        if m and m.group(2) in ("localhost", "127.0.0.1"):
+            scheme, host, start_port, path = (
+                m.group(1), m.group(2), int(m.group(3)), (m.group(4) or "/v1")
+            )
+            # CAPTION_ENDPOINTS lets par_ingest split the 6 Omni among N video
+            # workers (e.g. 2 workers × 3 endpoints): a worker pinned to
+            # start_port uses [start_port, start_port+n_ep). Default 6 = single
+            # process uses all of them. Each Omni then sees ~1 concurrent caption.
+            n_ep = int(_os.environ.get("CAPTION_ENDPOINTS", "6"))
+            clients = [
+                AsyncOpenAI(
+                    base_url=f"{scheme}://{host}:{start_port + i}{path}",
+                    api_key=self.qwen_cfg.api_key,
+                    http_client=httpx.AsyncClient(timeout=timeout),
+                    max_retries=6,   # ride out transient tunnel/saturation errors
+                )
+                for i in range(n_ep)
+            ]
+            logger.info(
+                f"Captioner: {len(clients)} parallel Omni endpoints "
+                f"({start_port}-{start_port + n_ep - 1})"
+            )
+            return clients
+        return [self.async_client]
 
     def _read_file_as_b64(self, path: str, mime: str) -> str:
         """Read a file (local or remote via SSH) and return a base64 data URI.
@@ -155,10 +217,14 @@ class Captioner:
             # Width-based scaling for local vLLM (token budget constraint).
             out_path = clip_path.rsplit(".", 1)[0] + f"_scaled{width}.mp4"
             try:
+                # Long-edge scaling: fit within width x width box so BOTH landscape
+                # and PORTRAIT clips shrink to a bounded token budget. (Old width-only
+                # scaling blew up portrait videos' height -> token overflow.)
+                vf = f"scale={width}:{width}:force_original_aspect_ratio=decrease:force_divisible_by=2"
                 if self.remote.enabled:
                     result = subprocess.run(
                         ["ssh", self.remote.host,
-                         f"ffmpeg -y -i {clip_path} -vf 'scale={width}:-2' -c:a copy {out_path} 2>/dev/null"],
+                         f"ffmpeg -y -i {clip_path} -vf '{vf}' -c:a copy {out_path} 2>/dev/null"],
                         capture_output=True, text=True, timeout=60,
                     )
                     if result.returncode == 0:
@@ -166,7 +232,7 @@ class Captioner:
                 else:
                     result = subprocess.run(
                         ["ffmpeg", "-y", "-i", clip_path,
-                         "-vf", f"scale={width}:-2",
+                         "-vf", vf,
                          "-c:a", "copy", out_path],
                         capture_output=True, timeout=60,
                     )
@@ -257,7 +323,7 @@ class Captioner:
         # extra_body: mm_processor_kwargs is vLLM-Omni-specific; omit for external APIs.
         # enable_thinking=False: explicitly disable thinking mode for Qwen3 models.
         if self.qwen_cfg.is_local:
-            extra_body = {"modalities": self.qwen_cfg.modalities, "mm_processor_kwargs": {"fps": 1.0}}
+            extra_body = {"modalities": self.qwen_cfg.modalities, "mm_processor_kwargs": {"fps": self.cfg.caption_fps}}
         else:
             extra_body = {"modalities": self.qwen_cfg.modalities, "enable_thinking": False}
 
@@ -343,15 +409,56 @@ class Captioner:
         logger.info(f"Captioning {total} segments (parallel={parallel})")
 
         if parallel:
-            return asyncio.run(self._caption_all_async(segments))
+            # Try parallel (fast). BACKUP: if it throws or produces too many errors
+            # (Omni KV pressure / deadlock under concurrency), fall back to serial
+            # below — which has its own circuit-breaker. This guarantees we never
+            # crash the run: worst case we degrade to the slow-but-safe path.
+            try:
+                caps = asyncio.run(self._caption_all_async(segments))
+                n_err = sum(
+                    1 for c in caps
+                    if (c.raw_text or "").startswith(("[Caption error", "[Clip unavailable"))
+                )
+                if n_err <= max(2, int(total * 0.3)):
+                    # Fire on_caption in index order so segment memories are
+                    # written to the memory store as an ordered stream (as if
+                    # serial), keeping boundary detection from merging captions
+                    # that would otherwise arrive together in a parallel batch.
+                    if on_caption is not None:
+                        for i, seg in enumerate(segments):
+                            on_caption(i, seg, caps[i])
+                    return caps
+                logger.warning(
+                    f"Parallel caption unhealthy ({n_err}/{total} errors — likely Omni "
+                    f"KV pressure under concurrency); falling back to SERIAL backup"
+                )
+            except Exception as e:
+                logger.warning(f"Parallel caption failed ({e}); falling back to SERIAL backup")
+            # fall through to serial backup ↓
 
         captions = []
+        consecutive_fail = 0
         for i, seg in enumerate(segments):
             logger.info(f"  Captioning [{i+1}/{total}] {seg.timestamp_label}")
             cap = self.caption_segment(seg, seg_index=i, total_segments=total)
             captions.append(cap)
             if on_caption is not None:
                 on_caption(i, seg, cap)
+            # Deadlock circuit-breaker: if the Omni server hangs, every caption
+            # request times out and returns a "[Caption error...]" placeholder.
+            # After several consecutive failures, abort this video so the caller
+            # can skip it (and a guard can restart the stuck Omni instance),
+            # instead of grinding through hundreds of timed-out segments.
+            rt = cap.raw_text or ""
+            if rt.startswith("[Caption error") or rt.startswith("[Clip unavailable"):
+                consecutive_fail += 1
+                if consecutive_fail >= 4:
+                    raise RuntimeError(
+                        f"Omni appears deadlocked: {consecutive_fail} consecutive "
+                        f"caption failures at segment {i+1}/{total}"
+                    )
+            else:
+                consecutive_fail = 0
 
         return captions
 
@@ -359,13 +466,17 @@ class Captioner:
         self, segments: list[VideoSegment]
     ) -> list[Caption]:
         """Caption segments concurrently (bounded concurrency)."""
-        semaphore = asyncio.Semaphore(4)  # Max 4 concurrent requests
+        n_ep = len(self.async_clients)
+        # ~1 concurrent request per endpoint; fall back to 5 for a single
+        # endpoint. Round-robin dispatch avoids stalling any one Omni worker.
+        semaphore = asyncio.Semaphore(n_ep if n_ep > 1 else 5)
         total = len(segments)
 
         async def _caption_one(i: int, seg: VideoSegment) -> Caption:
             async with semaphore:
-                logger.info(f"  [async] Captioning [{i+1}/{total}]")
-                return await self._async_caption_segment(seg, i, total)
+                client = self.async_clients[i % n_ep]
+                logger.info(f"  [async] Captioning [{i+1}/{total}] via Omni#{i % n_ep}")
+                return await self._async_caption_segment(seg, i, total, client)
 
         tasks = [_caption_one(i, seg) for i, seg in enumerate(segments)]
         return await asyncio.gather(*tasks)
@@ -375,8 +486,11 @@ class Captioner:
         segment: VideoSegment,
         seg_index: int,
         total_segments: int,
+        client=None,
     ) -> Caption:
         """Async version of caption_segment."""
+        if client is None:
+            client = self.async_client
         if not segment.clip_path or (
             not self.remote.enabled and not Path(segment.clip_path).exists()
         ):
@@ -427,7 +541,7 @@ class Captioner:
         content = [video_content, {"type": "text", "text": user_text}]
 
         if self.qwen_cfg.is_local:
-            extra_body = {"modalities": self.qwen_cfg.modalities, "mm_processor_kwargs": {"fps": 1.0}}
+            extra_body = {"modalities": self.qwen_cfg.modalities, "mm_processor_kwargs": {"fps": self.cfg.caption_fps}}
         else:
             extra_body = {"modalities": self.qwen_cfg.modalities, "enable_thinking": False}
 
@@ -438,7 +552,7 @@ class Captioner:
             f"(model={self.qwen_cfg.model}, max_tokens={max_tokens})"
         )
         try:
-            response = await self.async_client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=self.qwen_cfg.model,
                 messages=[
                     {"role": "system", "content": CAPTION_SYSTEM_PROMPT},
@@ -592,7 +706,7 @@ class Captioner:
 
         # API params: vLLM-specific vs external API.
         if self.qwen_cfg.is_local:
-            extra_body = {"modalities": ["text"], "mm_processor_kwargs": {"fps": 1.0}}
+            extra_body = {"modalities": ["text"], "mm_processor_kwargs": {"fps": self.cfg.caption_fps}}
         else:
             extra_body = {"modalities": ["text"], "enable_thinking": False}
 

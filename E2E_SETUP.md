@@ -62,7 +62,7 @@ Query --> Backend (FastAPI :7860, local)
             |-- search_episodes   --> EverMemOS
             |-- search_profiles   --> EverMemOS
             |-- search_deep       --> EverMemOS
-            |-- look_at_video     --> Qwen2.5-Omni (video grounding, on remote)
+            |-- look_at_clip      --> Qwen2.5-Omni (video grounding, on remote)
             |-- get_timeline      --> EverMemOS
             v
           Answer with timestamps + sources

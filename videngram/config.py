@@ -17,7 +17,7 @@ class QwenOmniConfig:
     base_url: str = os.getenv("QWEN_BASE_URL", "http://localhost:8091/v1")
     model: str = os.getenv("QWEN_MODEL", "Qwen/Qwen2.5-Omni-7B")
     api_key: str = os.getenv("QWEN_API_KEY", "EMPTY")
-    max_tokens: int = 512       # used in local (vLLM-Omni) mode
+    max_tokens: int = 4096      # detailed eleven-field captions (local vLLM-Omni mode)
     max_tokens_api: int = 2048  # used in external API mode
     temperature: float = 0.3
     modalities: list = field(default_factory=lambda: ["text"])
@@ -86,6 +86,7 @@ class CaptionerConfig:
     """Qwen2.5-Omni captioning settings."""
     max_clip_duration: float = 30.0
     use_audio_in_video: bool = True
+    caption_fps: float = 1.0   # frames per second fed to Omni per clip
     caption_fields: list = field(default_factory=lambda: [
         "scene_description", "visible_text_or_signs",
         "people_and_actions", "dialogue_or_speech",
@@ -122,7 +123,7 @@ class AgentConfig:
     planning_llm_base_url: str = os.getenv("PLANNING_LLM_BASE_URL", "")
     planning_llm_model: str = os.getenv("PLANNING_LLM_MODEL", "")
     planning_llm_api_key: str = os.getenv("PLANNING_LLM_API_KEY", "")
-    max_iterations: int = 5
+    max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "5"))
     enable_video_grounding: bool = True
 
     def __post_init__(self):
