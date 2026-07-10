@@ -338,6 +338,38 @@ Use `-v` before the subcommand for debug logging:
 python -m demo.cli -v query /path/to/video.mp4 "What happened?"
 ```
 
+### Batch ingest and evaluation
+
+To build memory for many videos at once, point `batch` at a directory (searched
+recursively) or a `.txt` manifest with one video path per line. A failed video is
+skipped so the rest of the batch continues.
+
+```bash
+# Ingest every video under a directory
+python -m demo.cli batch /path/to/videos/ --parallel
+
+# Restrict to a filename pattern
+python -m demo.cli batch /path/to/videos/ --glob "*.mp4"
+
+# Ingest a specific list of videos
+python -m demo.cli batch videos.txt
+```
+
+For reproducible benchmark queries, `scripts/evaluate.py` runs a fixed set of
+questions against one ingested video and reports accuracy, latency, tool usage,
+and timestamp-citation rate (optionally with an LLM judge):
+
+```bash
+# Ingest the video, then score it against a QA file
+python -m scripts.evaluate --video /path/to/video.mp4 --qa qa_pairs.json --output results.json
+
+# Reuse memory already built by `batch` (skip re-ingestion), with LLM-as-judge scoring
+python -m scripts.evaluate --video /path/to/video.mp4 --qa qa_pairs.json --skip-ingest --llm-judge
+
+# Generate a QA template from an ingested video
+python -m scripts.evaluate --video /path/to/video.mp4 --generate-qa
+```
+
 ## Data management
 
 ### Clear all memories

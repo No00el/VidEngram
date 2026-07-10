@@ -1,8 +1,8 @@
-# VidEngram: Structured Video Memory Powered by EverMemOS
+# VidEngram: Agentic Long-Term Video Understanding via Structured Hierarchical Memory
 
-> A structured long-video question-answering system with hierarchical memory and an agentic ReAct query loop.
+> VidEngram encodes a long video once into a reusable, inspectable memory of segments, episodes, and entities, then answers later questions with a text-only planner, improving long-video QA without re-encoding the video per query.
 
-VidEngram is built on two core pillars: **Qwen2.5-Omni** for native multimodal video+audio understanding, and **EverMemOS** for structured long-term memory with hierarchical storage, hybrid retrieval, and temporal reasoning. VidEngram leverages EverMemOS's three-layer episodic memory architecture (MemCell → Episode → Entity Profile) as its reasoning backbone — enabling structured consolidation, hybrid retrieval, and temporal reasoning far beyond naive caption-and-retrieve approaches. (Architectural design is inspired in part by HippoMM's episodic memory principles.)
+Long-video question answering is wasteful and lossy when a multimodal model must re-encode the same video for every query: context limits force sparse sampling or truncation, and no reusable representation remains for later questions. We present **VidEngram**, an agentic video QA system that builds a persistent hierarchical memory once at ingest and answers later questions from that memory. VidEngram captions video and audio jointly with Qwen2.5-Omni, consolidates segment memories into episode and entity layers, and uses a text-only agentic planner with specialized retrieval tools to produce grounded answers. The web interface makes this process inspectable: users can watch memory formation, inspect retrieval traces, verify cited evidence in the video player, and explore entity relationships. On the full OmniVideoBench, VidEngram with a GPT-5-mini planner outperforms a strong single-pass Qwen2.5-Omni baseline (37.0% vs. 32.3%), with gains concentrated on longer videos where single-pass coverage becomes sparse. Because perception is paid once, subsequent queries use low-cost text-only planning.
 
 ## Demo Video
 
@@ -21,7 +21,7 @@ https://youtu.be/hoZQ7Fje5Zw
 | Feature | Description |
 |---|---|
 | **Native multimodal understanding** | Qwen2.5-Omni processes video frames and audio in a single pass — no separate vision/audio pipelines |
-| **EverMemOS three-layer memory** | Structured hierarchy: MemCell → Episode summary → Entity profile, with hybrid retrieval (BM25 + vector via RRF) |
+| **Memory Manager three-layer memory** | Structured hierarchy: MemCell → Episode summary → Entity profile, with hybrid retrieval (BM25 + vector via RRF) |
 | **ReAct agentic Q&A** | 6 tools, autonomous dispatch, self-reflection on answer quality |
 | **Forced timestamp citations** | All answers include `[Video M:SS - N:SS]` anchors grounded in actual video time |
 | **Streaming ingest architecture** | Speech and segment memories written concurrently as captions arrive |
@@ -84,11 +84,11 @@ search_speech · get_timeline"]
 
 ## Key Novelties
 
-1. **EverMemOS as the Memory Backbone** — All consolidated memories are stored in EverMemOS's native three-layer hierarchy (MemCell → Episode → Entity Profile). Retrieval fuses BM25 keyword search and dense vector search via reciprocal rank fusion (RRF) in a single hybrid call, with an LLM-guided reranking stage for multi-hop agentic retrieval — capabilities provided entirely by EverMemOS with no custom retrieval code needed.
+1. **Memory Manager as the Memory Backbone** — All consolidated memories are stored in the Memory Manager's native three-layer hierarchy (MemCell → Episode → Entity Profile). Retrieval fuses BM25 keyword search and dense vector search via reciprocal rank fusion (RRF) in a single hybrid call, with an LLM-guided reranking stage for multi-hop agentic retrieval — capabilities provided entirely by the Memory Manager with no custom retrieval code needed.
 
-2. **Structured Three-Layer Memory Pipeline** — Not naive caption→RAG. Three-stage consolidation (dedup, episodes, profiles) creates a hierarchical memory structure that enables multi-hop reasoning, mapping directly onto EverMemOS's native storage layers.
+2. **Structured Three-Layer Memory Pipeline** — Not naive caption→RAG. Three-stage consolidation (dedup, episodes, profiles) creates a hierarchical memory structure that enables multi-hop reasoning, mapping directly onto the Memory Manager's native storage layers.
 
-3. **Memory-First Reasoning** — The design goal is that all reasoning over long videos — and across multiple videos — should rely entirely on EverMemOS's long-term memory, without re-analyzing the original video. EverMemOS natively supports cross-video retrieval, making multi-video reasoning an architectural property of the system rather than an afterthought.
+3. **Memory-First Reasoning** — The design goal is that all reasoning over long videos — and across multiple videos — should rely entirely on the Memory Manager's long-term memory, without re-analyzing the original video. The Memory Manager natively supports cross-video retrieval, making multi-video reasoning an architectural property of the system rather than an afterthought.
 
 4. **Agentic ReAct Orchestrator** — The query agent *plans* which tools to use, *executes* searches and video analysis, *observes* results, and *iterates*. Six tools cover fast retrieval, profile lookup, multi-hop retrieval, speech search, video grounding, and timeline queries.
 
@@ -158,11 +158,12 @@ For CLI usage:
 
 ```bash
 python -m demo.cli ingest path/to/video.mp4
+python -m demo.cli batch  path/to/videos/          # batch-ingest a directory
 python -m demo.cli query  path/to/video.mp4 "What was the main argument?"
 python -m demo.cli chat   path/to/video.mp4
 ```
 
-For full setup details including `.env` configuration, EverMemOS setup, GPU layout tips, and troubleshooting, see **[E2E_SETUP.md](E2E_SETUP.md)**.
+For full setup details including `.env` configuration, Memory Manager setup, GPU layout tips, troubleshooting, and batch ingestion of many videos, see **[E2E_SETUP.md](E2E_SETUP.md)**.
 
 ## Project Structure
 
@@ -205,11 +206,11 @@ videngram/
 |---|---|
 | Multimodal Encoding | `captioner.py`: Qwen2.5-Omni 11-field structured captions (unified AV) |
 | Temporal Segmentation | `segmenter.py`: ASR-guided + scene/silence detection; dedup filtering in `consolidator.py` |
-| Memory Consolidation | `consolidator.py`: episode summaries + entity profile construction → EverMemOS MemCell/Episode/Profile |
-| Agentic Reasoning | `agent.py`: ReAct agent tool dispatch over EverMemOS memories |
-| Fast Retrieval | `memory_reader.py`: EverMemOS RRF / BM25 / embedding hybrid search |
+| Memory Consolidation | `consolidator.py`: episode summaries + entity profile construction → Memory Manager MemCell/Episode/Profile |
+| Agentic Reasoning | `agent.py`: ReAct agent tool dispatch over Memory Manager memories |
+| Fast Retrieval | `memory_reader.py`: Memory Manager RRF / BM25 / embedding hybrid search |
 | Deep Retrieval | `memory_reader.py`: LLM-guided multi-hop retrieval + video grounding via `look_at_clip` |
-| Structured Storage | `memory_writer.py`: EverMemOS MemCell → Episode → Profile hierarchy |
+| Structured Storage | `memory_writer.py`: Memory Manager MemCell → Episode → Profile hierarchy |
 
 ## Dependencies
 

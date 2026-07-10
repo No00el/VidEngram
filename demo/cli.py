@@ -7,6 +7,9 @@ Usage:
     # Ingest a video
     python -m demo.cli ingest path/to/video.mp4
 
+    # Batch-ingest a directory (or a .txt manifest of video paths)
+    python -m demo.cli batch path/to/videos/
+
     # Query interactively
     python -m demo.cli chat path/to/video.mp4
 
@@ -72,6 +75,44 @@ def cmd_ingest(args):
         on_caption_ready=on_caption_ready,
     )
     print("\n✅ Ingestion complete!")
+
+
+def cmd_batch(args):
+    """Batch-ingest every video in a directory (or listed in a .txt manifest)."""
+    from pathlib import Path
+
+    VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v"}
+    root = Path(args.path)
+    if root.is_dir():
+        videos = sorted(p for p in root.rglob(args.glob) if p.suffix.lower() in VIDEO_EXTS)
+    elif root.suffix.lower() == ".txt":
+        # One video path per line; blank lines and '#' comments are ignored.
+        videos = [Path(ln.strip()) for ln in root.read_text().splitlines()
+                  if ln.strip() and not ln.strip().startswith("#")]
+    else:
+        videos = [root]
+
+    if not videos:
+        print(f"No videos found under {args.path!r}")
+        sys.exit(1)
+
+    pipeline = VidEngramPipeline()
+    print(f"\n📦 Batch ingest: {len(videos)} video(s)\n")
+    succeeded, failed = 0, []
+    for i, video in enumerate(videos):
+        print(f"[{i + 1}/{len(videos)}] 🎬 {video}")
+        try:
+            pipeline.ingest(str(video), parallel_caption=args.parallel)
+            succeeded += 1
+            print("    ✅ done\n")
+        except Exception as e:  # one bad video should not abort the whole batch
+            failed.append((str(video), str(e)))
+            print(f"    ❌ failed: {e}\n")
+
+    print("=" * 60)
+    print(f"Batch complete: {succeeded} succeeded, {len(failed)} failed")
+    for v, e in failed:
+        print(f"  ✗ {v}: {e}")
 
 
 def cmd_query(args):
@@ -158,6 +199,13 @@ def main():
     p_ingest.add_argument("video", help="Path to video file")
     p_ingest.add_argument("--parallel", action="store_true", help="Parallel captioning")
 
+    # batch
+    p_batch = sub.add_parser("batch", help="Batch-ingest a directory or manifest of videos")
+    p_batch.add_argument("path", help="Directory of videos, or a .txt manifest (one path per line)")
+    p_batch.add_argument("--glob", default="*",
+                         help="Filename pattern when PATH is a directory (default: all videos)")
+    p_batch.add_argument("--parallel", action="store_true", help="Parallel captioning")
+
     # query
     p_query = sub.add_parser("query", help="Ask a single question")
     p_query.add_argument("video", help="Path to video file")
@@ -177,7 +225,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    {"ingest": cmd_ingest, "query": cmd_query, "chat": cmd_chat}[args.command](args)
+    {"ingest": cmd_ingest, "batch": cmd_batch, "query": cmd_query, "chat": cmd_chat}[args.command](args)
 
 
 if __name__ == "__main__":
