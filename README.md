@@ -235,7 +235,7 @@ If you use VidEngram, please cite:
 ```bibtex
 @misc{videngram2026,
   author={Zinuo Cheng and Yueqian Lin and Hai "Helen" Li and Yiran Chen},
-  title={VidEngram: Structured Video Memory Powered by EverMemOS},
+  title={VidEngram: Agentic Long-Term Video Understanding via Structured Hierarchical Memory},
   year={2026}
 }
 ```
