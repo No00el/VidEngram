@@ -22,7 +22,7 @@ https://youtu.be/hoZQ7Fje5Zw
 |---|---|
 | **Native multimodal understanding** | Qwen2.5-Omni processes video frames and audio in a single pass — no separate vision/audio pipelines |
 | **Memory Manager three-layer memory** | Structured hierarchy: MemCell → Episode summary → Entity profile, with hybrid retrieval (BM25 + vector via RRF) |
-| **ReAct agentic Q&A** | 6 tools, autonomous dispatch, self-reflection on answer quality |
+| **ReAct agentic Q&A** | 6 tools, autonomous dispatch, evidence-sufficiency checks before answering |
 | **Forced timestamp citations** | All answers include `[Video M:SS - N:SS]` anchors grounded in actual video time |
 | **Streaming ingest architecture** | Speech and segment memories written concurrently as captions arrive |
 | **Web UI + knowledge graph** | Real-time subtitle overlay, scene navigation, D3.js entity relationship graph |
@@ -42,8 +42,8 @@ Whisper API
 speech → transcript + timestamps"]
         B["② Temporal Segmenter
 ──────────────
-ASR boundary + ffmpeg
-scene & silence detection"]
+Whisper ASR sentence
+boundaries (~7–8s segments)"]
         C["③ Captioner
 ──────────────
 Qwen2.5-Omni-7B · vLLM
@@ -189,7 +189,7 @@ videngram/
 ├── frontend/
 │   └── index.html          # Single-file Web UI — subtitles, scene nav, D3.js graph (no build step)
 ├── demo/
-│   └── cli.py              # CLI: ingest / query / chat
+│   └── cli.py              # CLI: ingest / batch / query / chat
 ├── config/
 │   └── default_config.yaml # Default YAML configuration
 ├── serve_all.sh            # vLLM model server launcher (Omni + Embedding + Reranker)
@@ -205,7 +205,7 @@ videngram/
 | Module | VidEngram Implementation |
 |---|---|
 | Multimodal Encoding | `captioner.py`: Qwen2.5-Omni 11-field structured captions (unified AV) |
-| Temporal Segmentation | `segmenter.py`: ASR-guided + scene/silence detection; dedup filtering in `consolidator.py` |
+| Temporal Segmentation | `segmenter.py`: Whisper ASR sentence-boundary segmentation (~7–8 s segments); dedup filtering in `consolidator.py` |
 | Memory Consolidation | `consolidator.py`: episode summaries + entity profile construction → Memory Manager MemCell/Episode/Profile |
 | Agentic Reasoning | `agent.py`: ReAct agent tool dispatch over Memory Manager memories |
 | Fast Retrieval | `memory_reader.py`: Memory Manager RRF / BM25 / embedding hybrid search |
@@ -219,6 +219,7 @@ videngram/
 | Qwen2.5-Omni-7B | — | Multimodal video+audio→text understanding and video grounding |
 | Qwen3-Embedding-4B | — | EverMemOS vector embeddings |
 | Qwen3-Reranker-4B | — | EverMemOS search reranking |
+| Planning LLM | — | Text-only agentic planner (swappable, e.g. GPT-5-mini or self-hosted Qwen2.5-7B) |
 | vLLM | ≥0.16.0 | Model serving with OpenAI-compatible API |
 | EverMemOS | ≥1.2.0 | Structured long-term memory system |
 | FastAPI / uvicorn | — | Backend web server |
