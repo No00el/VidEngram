@@ -58,7 +58,7 @@ Qwen2.5-Omni-7B · vLLM
 ──────────────
 Jaccard dedup · episode grouping
 cross-episode entity resolution"]
-        E["⑤ EverMemOS Writer
+        E["⑤ Memory Manager Writer
 ──────────────
 POST /api/v1/memories
 MongoDB + ES + Milvus"]
